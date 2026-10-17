@@ -1,36 +1,113 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 🌐 Aegis Watch — Website Change Detector
 
-## Getting Started
+**Live Demo (Frontend):** [Insert Vercel URL here, e.g., https://aegis-watch.vercel.app]
+**Backend API:** [Insert Render URL here, e.g., https://website-detector.onrender.com]
+**Swagger API Docs:** [Insert Render URL here]/docs
+**Prometheus Metrics:** [Insert Render URL here]/metrics
 
-First, run the development server:
+A production-grade, full-stack application that monitors public web pages and alerts users to **meaningful changes** while intelligently ignoring noise. 
 
-```bash
+Built with a Next.js dashboard and a highly secure, event-driven Node.js backend.
+
+![Dashboard Placeholder](https://via.placeholder.com/1000x500.png?text=Aegis+Watch+Dashboard) 
+*(Replace this image link with a screenshot of your dashboard if you have one!)*
+
+---
+
+## ✨ Key Features
+
+- 🎭 **Headless Browser Rendering:** Uses Playwright + Stealth to accurately capture JavaScript-heavy pages.
+- 🧠 **AI Change Summaries:** Integrates Google Gemini 1.5 Flash to generate human-readable, one-sentence summaries of what actually changed.
+- 🔇 **Noise Filtering:** Strips timestamps, counters, and random tokens before hashing to prevent false alarms.
+- 📸 **Visual & Text Diffing:** Side-by-side pixel comparison (via `pixelmatch`) alongside text diffs.
+- ⚡ **URL Deduplication:** If 200 users monitor the same URL, it is fetched only once via BullMQ job deduplication.
+- 🚦 **Rate Limiting & Jitter:** Prevents hammering target sites.
+- 🔒 **Security Hardened:** SSRF protection (blocks internal IPs), SHA-256 hashed API keys, IDOR protection.
+- 📊 **Observability:** Prometheus metrics and interactive Swagger API documentation.
+
+---
+
+## 🏗️ Architecture
+
+```mermaid
+graph LR
+    A[Next.js Frontend] -->|REST + API Key| B[Express API]
+    B -->|enqueue| C[(Redis + BullMQ)]
+    C -->|jobs| D[Playwright Worker]
+    D -->|fetch| E[Target Websites]
+    D -->|diff + AI| F[(SQLite + Prisma)]
+    D -->|alert| G[Discord Webhook]
+🧪 Test Script (Backend)
+To verify the backend implementation and security (as required by the hackathon), run the integration test suite:
+
+bash
+# Terminal 1: Start the backend server
+cd backend
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+# Terminal 2: Run the test script
+node test.js
+Expected Output: 📊 8 passed, 0 failed
+(Tests include: Auth blocking, SSRF protection, CRUD operations, and queue triggering).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+🛠️ Tech Stack
+Frontend:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Next.js 14 (App Router)
 
-## Learn More
+TypeScript & Tailwind CSS
 
-To learn more about Next.js, take a look at the following resources:
+Lucide React (Icons) & React Hot Toast
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Backend:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Node.js 20 & Express
 
-## Deploy on Vercel
+Prisma ORM + SQLite
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+BullMQ + Redis (Upstash)
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Playwright + playwright-extra
+
+Google Gemini API
+
+🚀 Local Setup
+1. Backend Setup
+bash
+git clone [Insert Backend Repo URL]
+cd backend
+npm install
+npx playwright install chromium
+npx prisma migrate dev --name init
+Create a .env file:
+
+env
+PORT=3000
+DATABASE_URL="file:./dev.db"
+REDIS_URL=rediss://default:YOUR_PASSWORD@your-db.upstash.io:6379
+API_KEY=your-super-secure-api-key-min-16-chars
+GEMINI_API_KEY=your-gemini-api-key
+DISCORD_WEBHOOK_URL=your-discord-webhook
+Start the backend: npm run dev
+
+2. Frontend Setup
+bash
+git clone [Insert Frontend Repo URL]
+cd frontend
+npm install
+Create a .env.local file:
+
+env
+NEXT_PUBLIC_API_URL=http://localhost:3000
+NEXT_PUBLIC_API_KEY=your-super-secure-api-key-min-16-chars
+Start the frontend: npm run dev
+
+🔒 Security Design Decisions
+SSRF Protection: Uses net.BlockList to resolve DNS and block private IP ranges (10.x, 192.168.x, etc.), preventing the scraper from hitting internal infrastructure.
+
+API Key Auth: Keys are hashed with SHA-256 before being stored in the database. Keys are validated using an indexed lookup to prevent timing attacks.
+
+Data Isolation: Monitors are scoped to the ownerId (API Key ID) that created them, preventing Insecure Direct Object Reference (IDOR) vulnerabilities.
+
+📄 License
+MIT
