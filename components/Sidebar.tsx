@@ -3,7 +3,13 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Activity, Bell, LayoutDashboard } from "lucide-react";
 
-export default function Sidebar() {
+// 1. Tell TypeScript to expect the prop
+interface SidebarProps {
+  onNavigate?: () => void;
+}
+
+// 2. Accept the prop
+export default function Sidebar({ onNavigate }: SidebarProps) {
   const pathname = usePathname();
 
   const links = [
@@ -26,6 +32,7 @@ export default function Sidebar() {
             <Link
               key={link.name}
               href={link.href}
+              onClick={onNavigate} // 3. Call the prop when a link is clicked
               className={`flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${
                 isActive ? "bg-indigo-500/10 text-indigo-400" : "text-zinc-400 hover:bg-zinc-800 hover:text-white"
               }`}
