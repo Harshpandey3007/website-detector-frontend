@@ -1,113 +1,50 @@
-# 🌐 Aegis Watch — Website Change Detector
+```markdown
+# 🖥️ Aegis Watch — Frontend Dashboard
 
-**Live Demo (Frontend):** [Insert Vercel URL here, e.g., https://aegis-watch.vercel.app]
-**Backend API:** [Insert Render URL here, e.g., https://website-detector.onrender.com]
-**Swagger API Docs:** [Insert Render URL here]/docs
-**Prometheus Metrics:** [Insert Render URL here]/metrics
+![Next.js](https://img.shields.io/badge/Next.js-14-black)
+![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-38B2AC?logo=tailwind-css&logoColor=white)
+![Vercel](https://img.shields.io/badge/Deployed_on-Vercel-black)
 
-A production-grade, full-stack application that monitors public web pages and alerts users to **meaningful changes** while intelligently ignoring noise. 
+**Live Demo:** website-detector-frontend.vercel.app
+**Backend Source Code:** [https://github.com/Harshpandey3007/website-detector](https://github.com/Harshpandey3007/website-detector)
+**Backend API:** https://website-detector-151j.onrender.com
+A premium, dark-mode dashboard for the Aegis Watch Website Change Detector. Built to look and feel like a modern SaaS application (inspired by Vercel and Linear).
 
-Built with a Next.js dashboard and a highly secure, event-driven Node.js backend.
-
-![Dashboard Placeholder](https://via.placeholder.com/1000x500.png?text=Aegis+Watch+Dashboard) 
-*(Replace this image link with a screenshot of your dashboard if you have one!)*
-
----
-
-## ✨ Key Features
-
-- 🎭 **Headless Browser Rendering:** Uses Playwright + Stealth to accurately capture JavaScript-heavy pages.
-- 🧠 **AI Change Summaries:** Integrates Google Gemini 1.5 Flash to generate human-readable, one-sentence summaries of what actually changed.
-- 🔇 **Noise Filtering:** Strips timestamps, counters, and random tokens before hashing to prevent false alarms.
-- 📸 **Visual & Text Diffing:** Side-by-side pixel comparison (via `pixelmatch`) alongside text diffs.
-- ⚡ **URL Deduplication:** If 200 users monitor the same URL, it is fetched only once via BullMQ job deduplication.
-- 🚦 **Rate Limiting & Jitter:** Prevents hammering target sites.
-- 🔒 **Security Hardened:** SSRF protection (blocks internal IPs), SHA-256 hashed API keys, IDOR protection.
-- 📊 **Observability:** Prometheus metrics and interactive Swagger API documentation.
-
----
-
-## 🏗️ Architecture
+## 🏗️ Full-Stack Architecture
 
 ```mermaid
 graph LR
-    A[Next.js Frontend] -->|REST + API Key| B[Express API]
-    B -->|enqueue| C[(Redis + BullMQ)]
-    C -->|jobs| D[Playwright Worker]
-    D -->|fetch| E[Target Websites]
-    D -->|diff + AI| F[(SQLite + Prisma)]
-    D -->|alert| G[Discord Webhook]
-🧪 Test Script (Backend)
-To verify the backend implementation and security (as required by the hackathon), run the integration test suite:
+    Client[Next.js Frontend] -->|REST + API Key| API[Express API]
+    API -->|Enqueue Jobs| Queue[(Redis + BullMQ)]
+    API -->|Read/Write| DB[(SQLite + Prisma)]
+    Queue -->|Process| Worker[Playwright Worker]
+    Worker -->|Fetch| Web[Target Websites]
+    Worker -->|Hash & Diff| Engine[Diff & Noise Engine]
+    Worker -->|AI Summary| Gemini[Google Gemini AI]
+    Engine -->|Save Snapshot| DB
+    Engine -->|Trigger Alert| Alerts[Discord / Email]
+✨ Features
+Real-time Dashboard: View total monitors, healthy endpoints, and recent alerts.
 
-bash
-# Terminal 1: Start the backend server
-cd backend
-npm run dev
+Monitor Management: Create, check, and delete monitors directly from the UI.
 
-# Terminal 2: Run the test script
-node test.js
-Expected Output: 📊 8 passed, 0 failed
-(Tests include: Auth blocking, SSRF protection, CRUD operations, and queue triggering).
+Skeleton Loading: Beautiful loading states while fetching data.
 
-🛠️ Tech Stack
-Frontend:
+Responsive Design: Fully functional on mobile and desktop.
 
-Next.js 14 (App Router)
+Toast Notifications: Instant feedback on API actions.
 
-TypeScript & Tailwind CSS
-
-Lucide React (Icons) & React Hot Toast
-
-Backend:
-
-Node.js 20 & Express
-
-Prisma ORM + SQLite
-
-BullMQ + Redis (Upstash)
-
-Playwright + playwright-extra
-
-Google Gemini API
-
-🚀 Local Setup
-1. Backend Setup
-bash
-git clone [Insert Backend Repo URL]
-cd backend
+🚀 Setup & Installation
 npm install
-npx playwright install chromium
-npx prisma migrate dev --name init
-Create a .env file:
 
-env
-PORT=3000
-DATABASE_URL="file:./dev.db"
-REDIS_URL=rediss://default:YOUR_PASSWORD@your-db.upstash.io:6379
-API_KEY=your-super-secure-api-key-min-16-chars
-GEMINI_API_KEY=your-gemini-api-key
-DISCORD_WEBHOOK_URL=your-discord-webhook
-Start the backend: npm run dev
-
-2. Frontend Setup
-bash
-git clone [Insert Frontend Repo URL]
-cd frontend
-npm install
-Create a .env.local file:
+Create a .env.local file in the root:
 
 env
 NEXT_PUBLIC_API_URL=http://localhost:3000
-NEXT_PUBLIC_API_KEY=your-super-secure-api-key-min-16-chars
-Start the frontend: npm run dev
+NEXT_PUBLIC_API_KEY=your-super-secure-api-key
+npm run dev
 
-🔒 Security Design Decisions
-SSRF Protection: Uses net.BlockList to resolve DNS and block private IP ranges (10.x, 192.168.x, etc.), preventing the scraper from hitting internal infrastructure.
-
-API Key Auth: Keys are hashed with SHA-256 before being stored in the database. Keys are validated using an indexed lookup to prevent timing attacks.
-
-Data Isolation: Monitors are scoped to the ownerId (API Key ID) that created them, preventing Insecure Direct Object Reference (IDOR) vulnerabilities.
+Open http://localhost:3000 in your browser.
 
 📄 License
 MIT
