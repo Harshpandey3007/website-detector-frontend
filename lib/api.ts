@@ -52,10 +52,12 @@ export const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:30
 export const API_KEY = process.env.NEXT_PUBLIC_API_KEY || "";
 
 /** Screenshots and diff images are served by the API under /public (unguessable filenames). */
-export const assetURL = (path: string | null) => {
+
+
+// To exactly this:
+export const assetUrl = (path: string | null | undefined) => {
   if (!path) return undefined;
   
-  // Get the base URL directly from the environment variable
   const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
   const base = `${baseUrl}${path}`;
   
@@ -142,3 +144,15 @@ export const testChannels = () => request<{ results: ChannelResult[] }>("/channe
 export function getErrorMessage(err: unknown): string {
   return err instanceof Error && err.message ? err.message : "Something went wrong. Try again.";
 }
+export const asseturl = (path: string | null | undefined) => {
+  if (!path) return undefined;
+  
+  const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
+  const base = `${baseUrl}${path}`;
+  
+  if (baseUrl.includes("ngrok")) {
+    return `${base}?ngrok-skip-browser-warning=true`;
+  }
+  
+  return base;
+};
