@@ -1,0 +1,1346 @@
+# FRONTEND SOURCE
+
+
+===== app\alerts\page.tsx =====
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
+import toast from "react-hot-toast";
+import {
+  AlertTriangle,
+  Bell,
+  CheckCircle2,
+  Globe,
+  Plus,
+  type LucideIcon,
+} from "lucide-react";
+import {
+  getAlerts,
+  getErrorMessage,
+  getMonitors,
+  type Alert,
+  type Monitor,
+} from "@/lib/api";
+import { timestamp } from "@/lib/format";
+import { btnSecondary } from "@/lib/styles";
+import { useShell } from "@/components/AppShell";
+import AlertItem, { AlertItemSkeleton } from "@/components/AlertItem";
+import ErrorState from "@/components/ErrorState";
+import MonitorCard, { MonitorCardSkeleton } from "@/components/MonitorCard";
+import Skeleton from "@/components/Skeleton";
+
+type Tone = "default" | "ok" | "error";
+
+const ICON_TONE: Record<Tone, string> = {
+  default: "text-zinc-400",
+  ok: "text-emerald-400",
+  error: "text-red-400",
+};
+
+function StatCard({
+  label,
+  value,
+  icon: Icon,
+  loading,
+  tone = "default",
+}: {
+  label: string;
+  value: number;
+  icon: LucideIcon;
+  loading: boolean;
+  tone?: Tone;
+}) {
+  const valueTone = tone === "error" && value > 0 ? "text-red-300" : "text-zinc-100";
+  return (
+    <div className="rounded-xl border border-zinc-800/80 bg-gradient-to-b from-zinc-900/70 to-zinc-900/30 p-4 sm:p-5">
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-zinc-400">{label}</p>
+        <Icon className={`h-4 w-4 ${ICON_TONE[tone]}`} />
+      </div>
+      <div className="mt-3 h-9">
+        {loading ? (
+          <Skeleton className="h-8 w-16" />
+        ) : (
+          <p className={`text-3xl font-semibold tabular-nums tracking-tight ${valueTone}`}>
+            {value}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SectionHeader({
+  title,
+  href,
+  linkLabel,
+}: {
+  title: string;
+  href: string;
+  linkLabel: string;
+}) {
+  return (
+    <div className="mb-3 flex items-center justify-between">
+      <h2 className="text-sm font-medium text-zinc-100">{title}</h2>
+      <Link
+        href={href}
+        className="text-xs text-zinc-500 transition-colors hover:text-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500"
+      >
+        {linkLabel}
+      </Link>
+    </div>
+  );
+}
+
+export default function DashboardPage() {
+  const { refreshKey, openAddMonitor } = useShell();
+  const [monitors, setMonitors] = useState<Monitor[] | null>(null);
+  const [alerts, setAlerts] = useState<Alert[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const [m, a] = await Promise.all([getMonitors(), getAlerts()]);
+      setMonitors(m);
+      setAlerts(a);
+      setError(null);
+    } catch (err) {
+      const message = getErrorMessage(err);
+      setError(message);
+      toast.error(message, { id: "dashboard-load-error" });
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load, refreshKey]);
+
+  const retry = () => {
+    setError(null);
+    load();
+  };
+
+  const loading = !error && (monitors === null || alerts === null);
+
+  if (error && (monitors === null || alerts === null)) {
+    return <ErrorState message={error} onRetry={retry} />;
+  }
+
+  const list = monitors ?? [];
+  const alertList = alerts ?? [];
+  const isStatus = (m: Monitor, s: string) => (m.status ?? "").toUpperCase() === s;
+
+  const healthy = list.filter((m) => isStatus(m, "OK")).length;
+  const errored = list.filter((m) => isStatus(m, "ERROR")).length;
+
+  const recent = [...alertList]
+    .sort((a, b) => timestamp(b.sentAt) - timestamp(a.sentAt))
+    .slice(0, 6);
+
+  // Surface problems first, then the most recently changed pages
+  const topMonitors = [...list]
+    .sort((a, b) => {
+      const ae = isStatus(a, "ERROR") ? 1 : 0;
+      const be = isStatus(b, "ERROR") ? 1 : 0;
+      if (ae !== be) return be - ae;
+      return timestamp(b.lastChangedAt) - timestamp(a.lastChangedAt);
+    })
+    .slice(0, 3);
+
+  return (
+    <div className="space-y-8">
+      <section aria-label="Summary" className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+        <StatCard label="Total monitors" value={list.length} icon={Globe} loading={loading} />
+        <StatCard label="Healthy" value={healthy} icon={CheckCircle2} loading={loading} tone="ok" />
+        <StatCard label="Errors" value={errored} icon={AlertTriangle} loading={loading} tone="error" />
+        <StatCard label="Total alerts" value={alertList.length} icon={Bell} loading={loading} />
+      </section>
+
+      <section aria-label="Recent activity">
+        <SectionHeader title="Recent activity" href="/alerts" linkLabel="View all alerts" />
+        <div className="overflow-hidden rounded-xl border border-zinc-800/80 bg-zinc-900/40">
+          {loading ? (
+            <ul className="divide-y divide-zinc-800/60">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <AlertItemSkeleton key={i} />
+              ))}
+            </ul>
+          ) : recent.length === 0 ? (
+            <div className="px-6 py-10 text-center">
+              <p className="text-sm font-medium text-zinc-200">No alerts yet</p>
+              <p className="mt-1 text-sm text-zinc-500">
+                Changes show up here as soon as a monitor detects one.
+              </p>
+            </div>
+          ) : (
+            <ul className="divide-y divide-zinc-800/60">
+              {recent.map((alert) => (
+                <AlertItem key={alert.id} alert={alert} />
+              ))}
+            </ul>
+          )}
+        </div>
+      </section>
+
+      <section aria-label="Monitors">
+        <SectionHeader title="Monitors" href="/monitors" linkLabel="View all monitors" />
+        {loading ? (
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <MonitorCardSkeleton key={i} />
+            ))}
+          </div>
+        ) : topMonitors.length === 0 ? (
+          <div className="flex flex-col items-center rounded-xl border border-dashed border-zinc-800 px-6 py-10 text-center">
+            <p className="text-sm font-medium text-zinc-200">No monitors yet</p>
+            <p className="mt-1 text-sm text-zinc-500">
+              Add a page to watch and we&rsquo;ll alert you when it changes.
+            </p>
+            <button type="button" onClick={openAddMonitor} className={`${btnSecondary} mt-4`}>
+              <Plus className="h-3.5 w-3.5" />
+              Create monitor
+            </button>
+          </div>
+        ) : (
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {topMonitors.map((m) => (
+              <MonitorCard key={m.id} monitor={m} onChanged={load} />
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+===== app\globals.css =====
+@import "tailwindcss";
+
+body {
+  background-color: #09090b;
+  color: #f4f4f5;
+}
+
+===== app\layout.tsx =====
+import type { Metadata } from "next";
+import { Inter } from "next/font/google";
+import { Toaster } from "react-hot-toast";
+import AppShell from "@/components/AppShell";
+import "./globals.css";
+
+const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
+
+export const metadata: Metadata = {
+  title: "Change Detector",
+  description: "Monitor web pages and get alerted when they change.",
+};
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html lang="en" className={inter.variable}>
+      <body className="font-sans">
+        <AppShell>{children}</AppShell>
+        <Toaster
+          position="bottom-right"
+          toastOptions={{
+            style: {
+              background: "#18181b",
+              color: "#f4f4f5",
+              border: "1px solid #27272a",
+              fontSize: "14px",
+            },
+          }}
+        />
+      </body>
+    </html>
+  );
+}
+
+===== app\monitors\page.tsx =====
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import toast from "react-hot-toast";
+import { Globe, Plus } from "lucide-react";
+import { getErrorMessage, getMonitors, type Monitor } from "@/lib/api";
+import { btnPrimary } from "@/lib/styles";
+import { useShell } from "@/components/AppShell";
+import ErrorState from "@/components/ErrorState";
+import MonitorCard, { MonitorCardSkeleton } from "@/components/MonitorCard";
+import Skeleton from "@/components/Skeleton";
+
+export default function MonitorsPage() {
+  const { refreshKey, openAddMonitor } = useShell();
+  const [monitors, setMonitors] = useState<Monitor[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      setMonitors(await getMonitors());
+      setError(null);
+    } catch (err) {
+      const message = getErrorMessage(err);
+      setError(message);
+      toast.error(message, { id: "monitors-load-error" });
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load, refreshKey]);
+
+  const retry = () => {
+    setError(null);
+    load();
+  };
+
+  if (error && monitors === null) {
+    return <ErrorState message={error} onRetry={retry} />;
+  }
+
+  if (monitors === null) {
+    return (
+      <div className="space-y-5">
+        <Skeleton className="h-4 w-44" />
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <MonitorCardSkeleton key={i} />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (monitors.length === 0) {
+    return (
+      <div className="flex flex-col items-center rounded-xl border border-dashed border-zinc-800 bg-zinc-900/20 px-6 py-16 text-center">
+        <div className="flex h-12 w-12 items-center justify-center rounded-full border border-zinc-800 bg-zinc-900 text-zinc-400">
+          <Globe className="h-5 w-5" />
+        </div>
+        <h2 className="mt-5 text-base font-semibold tracking-tight">No monitors yet</h2>
+        <p className="mt-1.5 max-w-sm text-sm text-zinc-400">
+          Add a page you want to keep an eye on. We&rsquo;ll check it on a schedule and alert you
+          when something changes.
+        </p>
+        <button type="button" onClick={openAddMonitor} className={`${btnPrimary} mt-6`}>
+          <Plus className="h-4 w-4" />
+          Create monitor
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-5">
+      <p className="text-sm text-zinc-400">
+        {monitors.length} {monitors.length === 1 ? "page" : "pages"} being watched for changes.
+      </p>
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        {monitors.map((m) => (
+          <MonitorCard key={m.id} monitor={m} onChanged={load} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+===== app\page.tsx =====
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import toast from "react-hot-toast";
+import { getAlerts, getErrorMessage, type Alert } from "@/lib/api";
+import { timestamp } from "@/lib/format";
+import { useShell } from "@/components/AppShell";
+import AlertItem, { AlertItemSkeleton } from "@/components/AlertItem";
+import ErrorState from "@/components/ErrorState";
+
+export default function AlertsPage() {
+  const { refreshKey } = useShell();
+  const [alerts, setAlerts] = useState<Alert[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      setAlerts(await getAlerts());
+      setError(null);
+    } catch (err) {
+      const message = getErrorMessage(err);
+      setError(message);
+      toast.error(message, { id: "alerts-load-error" });
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load, refreshKey]);
+
+  const retry = () => {
+    setError(null);
+    load();
+  };
+
+  if (error && alerts === null) {
+    return <ErrorState message={error} onRetry={retry} />;
+  }
+
+  const sorted = alerts
+    ? [...alerts].sort((a, b) => timestamp(b.sentAt) - timestamp(a.sentAt))
+    : [];
+
+  return (
+    <div className="space-y-5">
+      <p className="text-sm text-zinc-400">Every change detected across your monitors.</p>
+      <div className="overflow-hidden rounded-xl border border-zinc-800/80 bg-zinc-900/40">
+        {alerts === null ? (
+          <ul className="divide-y divide-zinc-800/60">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <AlertItemSkeleton key={i} />
+            ))}
+          </ul>
+        ) : sorted.length === 0 ? (
+          <div className="px-6 py-14 text-center">
+            <p className="text-sm font-medium text-zinc-200">No alerts yet</p>
+            <p className="mt-1 text-sm text-zinc-500">
+              When a monitor detects a change, the details will appear here.
+            </p>
+          </div>
+        ) : (
+          <ul className="divide-y divide-zinc-800/60">
+            {sorted.map((alert) => (
+              <AlertItem key={alert.id} alert={alert} showUrl />
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
+===== app\tailwind.config.ts =====
+import type { Config } from "tailwindcss";
+
+const config: Config = {
+  content: [
+    "./pages/**/*.{js,ts,jsx,tsx,mdx}",
+    "./components/**/*.{js,ts,jsx,tsx,mdx}",
+    "./app/**/*.{js,ts,jsx,tsx,mdx}",
+  ],
+  theme: {
+    extend: {},
+  },
+  plugins: [],
+};
+export default config;
+
+===== components\AddMonitorModal.tsx =====
+"use client";
+
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
+import toast from "react-hot-toast";
+import { ChevronDown, Loader2, X } from "lucide-react";
+import { createMonitor, getErrorMessage } from "@/lib/api";
+import { btnGhost, btnPrimary } from "@/lib/styles";
+
+interface Props {
+  open: boolean;
+  onClose: () => void;
+  onCreated?: () => void;
+}
+
+const INTERVALS = [
+  { value: 15, label: "Every 15 minutes" },
+  { value: 30, label: "Every 30 minutes" },
+  { value: 60, label: "Every hour" },
+  { value: 1440, label: "Every day" },
+];
+
+const inputBase =
+  "h-10 w-full rounded-md border bg-zinc-900/60 px-3 text-sm text-zinc-100 placeholder:text-zinc-600 transition-colors focus:outline-none focus:ring-2 focus:ring-zinc-500/50 disabled:opacity-60";
+const inputCls = (hasError: boolean) =>
+  `${inputBase} ${hasError ? "border-red-500/60" : "border-zinc-800 focus:border-zinc-600"}`;
+
+function normalizeUrl(raw: string): string | null {
+  const value = raw.trim();
+  if (!value) return null;
+  const withScheme = /^https?:\/\//i.test(value) ? value : `https://${value}`;
+  try {
+    const u = new URL(withScheme);
+    if (!u.hostname.includes(".") && u.hostname !== "localhost") return null;
+    return u.toString();
+  } catch {
+    return null;
+  }
+}
+
+export default function AddMonitorModal({ open, onClose, onCreated }: Props) {
+  const uid = useId();
+  const nameRef = useRef<HTMLInputElement>(null);
+
+  const [name, setName] = useState("");
+  const [url, setUrl] = useState("");
+  const [intervalMins, setIntervalMins] = useState(60);
+  const [sensitivity, setSensitivity] = useState(50);
+  const [errors, setErrors] = useState<{ name?: string; url?: string }>({});
+  const [submitting, setSubmitting] = useState(false);
+
+  // Reset the form and focus the first field each time the modal opens
+  useEffect(() => {
+    if (!open) return;
+    setName("");
+    setUrl("");
+    setIntervalMins(60);
+    setSensitivity(50);
+    setErrors({});
+    setSubmitting(false);
+    const t = setTimeout(() => nameRef.current?.focus(), 30);
+    return () => clearTimeout(t);
+  }, [open]);
+
+  // Escape to close and lock page scroll while open
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !submitting) onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [open, submitting, onClose]);
+
+  if (!open) return null;
+
+  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (submitting) return;
+
+    const cleanName = name.trim();
+    const normalizedUrl = normalizeUrl(url);
+    const next: { name?: string; url?: string } = {};
+
+    if (!cleanName) next.name = "Enter a name for this monitor.";
+    if (!url.trim()) next.url = "Enter the URL of the page to watch.";
+    else if (!normalizedUrl) next.url = "Enter a valid URL, like https://example.com/pricing.";
+
+    setErrors(next);
+    if (Object.keys(next).length > 0) return;
+
+    setSubmitting(true);
+    try {
+      await createMonitor({
+        name: cleanName,
+        url: normalizedUrl as string,
+        intervalMins,
+        sensitivity,
+      });
+      toast.success("Monitor created");
+      onCreated?.();
+      onClose();
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+      setSubmitting(false);
+    }
+  }
+
+  const nameId = `${uid}-name`;
+  const urlId = `${uid}-url`;
+  const intervalId = `${uid}-interval`;
+  const sensitivityId = `${uid}-sensitivity`;
+  const titleId = `${uid}-title`;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex animate-fade-in items-end justify-center bg-black/70 backdrop-blur-sm sm:items-center sm:p-4"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget && !submitting) onClose();
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        className="max-h-[92vh] w-full max-w-md animate-modal-in overflow-y-auto rounded-t-2xl border border-zinc-800 bg-zinc-950 shadow-2xl shadow-black/50 sm:rounded-2xl"
+      >
+        <div className="flex items-start justify-between gap-4 border-b border-zinc-800/80 px-5 py-4">
+          <div>
+            <h2 id={titleId} className="text-base font-semibold tracking-tight">
+              Create monitor
+            </h2>
+            <p className="mt-1 text-sm text-zinc-400">
+              We&rsquo;ll check this page on a schedule and alert you when it changes.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={submitting}
+            aria-label="Close"
+            className="-mr-1.5 -mt-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-zinc-500 transition-colors hover:bg-zinc-800/70 hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500 disabled:opacity-50"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} noValidate className="space-y-5 px-5 py-5">
+          <div>
+            <label htmlFor={nameId} className="mb-1.5 block text-sm font-medium text-zinc-200">
+              Name
+            </label>
+            <input
+              ref={nameRef}
+              id={nameId}
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Pricing page"
+              disabled={submitting}
+              autoComplete="off"
+              aria-invalid={!!errors.name}
+              aria-describedby={errors.name ? `${nameId}-error` : undefined}
+              className={inputCls(!!errors.name)}
+            />
+            {errors.name && (
+              <p id={`${nameId}-error`} className="mt-1.5 text-xs text-red-400">
+                {errors.name}
+              </p>
+            )}
+          </div>
+
+          <div>
+            <label htmlFor={urlId} className="mb-1.5 block text-sm font-medium text-zinc-200">
+              URL
+            </label>
+            <input
+              id={urlId}
+              type="text"
+              inputMode="url"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="https://example.com/pricing"
+              disabled={submitting}
+              autoComplete="off"
+              autoCapitalize="off"
+              spellCheck={false}
+              aria-invalid={!!errors.url}
+              aria-describedby={errors.url ? `${urlId}-error` : undefined}
+              className={inputCls(!!errors.url)}
+            />
+            {errors.url && (
+              <p id={`${urlId}-error`} className="mt-1.5 text-xs text-red-400">
+                {errors.url}
+              </p>
+            )}
+          </div>
+
+          <div>
+            <label htmlFor={intervalId} className="mb-1.5 block text-sm font-medium text-zinc-200">
+              Check interval
+            </label>
+            <div className="relative">
+              <select
+                id={intervalId}
+                value={intervalMins}
+                onChange={(e) => setIntervalMins(Number(e.target.value))}
+                disabled={submitting}
+                className={`${inputCls(false)} appearance-none pr-9`}
+              >
+                {INTERVALS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+            </div>
+          </div>
+
+          <div>
+            <div className="mb-2.5 flex items-center justify-between">
+              <label htmlFor={sensitivityId} className="text-sm font-medium text-zinc-200">
+                Sensitivity
+              </label>
+              <span className="text-sm tabular-nums text-zinc-400">{sensitivity}%</span>
+            </div>
+            <input
+              id={sensitivityId}
+              type="range"
+              min={1}
+              max={100}
+              step={1}
+              value={sensitivity}
+              onChange={(e) => setSensitivity(Number(e.target.value))}
+              disabled={submitting}
+              className="range w-full"
+              style={{
+                background: `linear-gradient(to right, #e4e4e7 ${sensitivity}%, #27272a ${sensitivity}%)`,
+              }}
+            />
+            <p className="mt-2 text-xs text-zinc-500">
+              Higher sensitivity flags smaller changes on the page.
+            </p>
+          </div>
+
+          <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end">
+            <button type="button" onClick={onClose} disabled={submitting} className={btnGhost}>
+              Cancel
+            </button>
+            <button type="submit" disabled={submitting} className={btnPrimary}>
+              {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
+              {submitting ? "Creating monitor" : "Create monitor"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+
+===== components\AlertItem.tsx =====
+import { Bell } from "lucide-react";
+import type { Alert } from "@/lib/api";
+import { fullDate, timeAgo } from "@/lib/format";
+import Skeleton from "./Skeleton";
+
+export default function AlertItem({
+  alert,
+  showUrl = false,
+}: {
+  alert: Alert;
+  showUrl?: boolean;
+}) {
+  return (
+    <li className="flex gap-3 px-4 py-3.5 sm:px-5">
+      <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-zinc-800 bg-zinc-900 text-zinc-400">
+        <Bell className="h-4 w-4" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-baseline justify-between gap-3">
+          <p className="truncate text-sm font-medium text-zinc-100">
+            {alert.monitor?.name ?? "Deleted monitor"}
+          </p>
+          <time
+            dateTime={alert.sentAt}
+            title={fullDate(alert.sentAt)}
+            className="shrink-0 text-xs text-zinc-500"
+          >
+            {timeAgo(alert.sentAt)}
+          </time>
+        </div>
+        <p className="mt-1 line-clamp-2 text-sm text-zinc-400">{alert.summary}</p>
+        {showUrl && alert.monitor?.url && (
+          <p className="mt-1 truncate text-xs text-zinc-600">{alert.monitor.url}</p>
+        )}
+      </div>
+    </li>
+  );
+}
+
+export function AlertItemSkeleton() {
+  return (
+    <li className="flex gap-3 px-4 py-3.5 sm:px-5" aria-hidden="true">
+      <Skeleton className="h-8 w-8 shrink-0 rounded-full" />
+      <div className="min-w-0 flex-1 space-y-2">
+        <div className="flex justify-between gap-3">
+          <Skeleton className="h-4 w-32" />
+          <Skeleton className="h-3 w-16" />
+        </div>
+        <Skeleton className="h-3.5 w-full max-w-md" />
+      </div>
+    </li>
+  );
+}
+
+===== components\AppShell.tsx =====
+"use client";
+
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
+import { usePathname } from "next/navigation";
+import { Menu, Plus } from "lucide-react";
+import { btnPrimary } from "@/lib/styles";
+import AddMonitorModal from "./AddMonitorModal";
+import Sidebar from "./Sidebar";
+
+interface ShellContextValue {
+  /** Opens the "Create monitor" modal. */
+  openAddMonitor: () => void;
+  /** Increments whenever a monitor is created. Pages refetch when it changes. */
+  refreshKey: number;
+}
+
+const ShellContext = createContext<ShellContextValue>({
+  openAddMonitor: () => {},
+  refreshKey: 0,
+});
+
+export const useShell = () => useContext(ShellContext);
+
+const TITLES: Record<string, string> = {
+  "/": "Dashboard",
+  "/monitors": "Monitors",
+  "/alerts": "Alerts",
+};
+
+export default function AppShell({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
+  const [navOpen, setNavOpen] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  const openAddMonitor = useCallback(() => setModalOpen(true), []);
+  const closeModal = useCallback(() => setModalOpen(false), []);
+  const handleCreated = useCallback(() => setRefreshKey((k) => k + 1), []);
+
+  const ctx = useMemo(
+    () => ({ openAddMonitor, refreshKey }),
+    [openAddMonitor, refreshKey]
+  );
+
+  // Close the mobile drawer on navigation
+  useEffect(() => {
+    setNavOpen(false);
+  }, [pathname]);
+
+  // Close the mobile drawer with Escape
+  useEffect(() => {
+    if (!navOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setNavOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [navOpen]);
+
+  const title = TITLES[pathname] ?? "Dashboard";
+
+  return (
+    <ShellContext.Provider value={ctx}>
+      <div className="min-h-screen">
+        {/* Grid background */}
+        <div
+          aria-hidden="true"
+          className="bg-grid pointer-events-none fixed inset-0 z-0 lg:left-60"
+        />
+
+        {/* Desktop sidebar */}
+        <aside className="fixed inset-y-0 left-0 z-30 hidden w-60 border-r border-zinc-800/80 bg-zinc-950 lg:block">
+          <Sidebar />
+        </aside>
+
+        {/* Mobile drawer */}
+        {navOpen && (
+          <div
+            className="fixed inset-0 z-40 lg:hidden"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Navigation"
+          >
+            <div
+              className="absolute inset-0 animate-fade-in bg-black/70"
+              onClick={() => setNavOpen(false)}
+            />
+            <aside className="absolute inset-y-0 left-0 w-64 border-r border-zinc-800 bg-zinc-950">
+              <Sidebar onNavigate={() => setNavOpen(false)} />
+            </aside>
+          </div>
+        )}
+
+        <div className="relative z-10 lg:pl-60">
+          <header className="sticky top-0 z-20 flex h-14 items-center justify-between gap-3 border-b border-zinc-800/80 bg-zinc-950/70 px-4 backdrop-blur-md sm:px-6 lg:px-8">
+            <div className="flex min-w-0 items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setNavOpen(true)}
+                aria-label="Open navigation"
+                className="-ml-1.5 inline-flex h-9 w-9 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-800/70 hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500 lg:hidden"
+              >
+                <Menu className="h-5 w-5" />
+              </button>
+              <h1 className="truncate text-sm font-semibold tracking-tight">{title}</h1>
+            </div>
+
+            <button
+              type="button"
+              onClick={openAddMonitor}
+              aria-label="Create monitor"
+              className={btnPrimary}
+            >
+              <Plus className="h-4 w-4" />
+              <span className="hidden sm:inline">Create monitor</span>
+            </button>
+          </header>
+
+          <main className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+            {children}
+          </main>
+        </div>
+
+        <AddMonitorModal open={modalOpen} onClose={closeModal} onCreated={handleCreated} />
+      </div>
+    </ShellContext.Provider>
+  );
+}
+
+===== components\ErrorState.tsx =====
+import { AlertTriangle, RefreshCw } from "lucide-react";
+import { btnSecondary } from "@/lib/styles";
+
+export default function ErrorState({
+  message,
+  onRetry,
+}: {
+  message: string;
+  onRetry: () => void;
+}) {
+  return (
+    <div className="flex flex-col items-center rounded-xl border border-red-500/20 bg-red-500/5 px-6 py-12 text-center">
+      <div className="flex h-10 w-10 items-center justify-center rounded-full border border-red-500/20 bg-red-500/10 text-red-400">
+        <AlertTriangle className="h-5 w-5" />
+      </div>
+      <h2 className="mt-4 text-sm font-medium text-zinc-100">Couldn&rsquo;t load your data</h2>
+      <p className="mt-1 max-w-md text-sm text-zinc-400">{message}</p>
+      <button type="button" onClick={onRetry} className={`${btnSecondary} mt-5`}>
+        <RefreshCw className="h-3.5 w-3.5" />
+        Try again
+      </button>
+    </div>
+  );
+}
+
+===== components\MonitorCard.tsx =====
+"use client";
+
+import { useEffect, useState } from "react";
+import toast from "react-hot-toast";
+import { ArrowUpRight, Loader2, RefreshCw, Trash2 } from "lucide-react";
+import { checkMonitor, deleteMonitor, getErrorMessage, type Monitor } from "@/lib/api";
+import { formatInterval, fullDate, timeAgo } from "@/lib/format";
+import { btnDanger, btnDangerActive, btnSecondary } from "@/lib/styles";
+import Skeleton from "./Skeleton";
+import StatusBadge from "./StatusBadge";
+
+export default function MonitorCard({
+  monitor,
+  onChanged,
+}: {
+  monitor: Monitor;
+  onChanged: () => void;
+}) {
+  const [checking, setChecking] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+
+  // Second click on "Delete" must happen within 3 seconds to confirm.
+  useEffect(() => {
+    if (!confirming) return;
+    const t = setTimeout(() => setConfirming(false), 3000);
+    return () => clearTimeout(t);
+  }, [confirming]);
+
+  async function handleCheck() {
+    setChecking(true);
+    try {
+      await checkMonitor(monitor.id);
+      toast.success(`Checked ${monitor.name}`);
+      onChanged();
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  async function handleDelete() {
+    if (!confirming) {
+      setConfirming(true);
+      return;
+    }
+    setDeleting(true);
+    try {
+      await deleteMonitor(monitor.id);
+      toast.success(`Deleted ${monitor.name}`);
+      onChanged();
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+      setDeleting(false);
+      setConfirming(false);
+    }
+  }
+
+  const busy = checking || deleting;
+
+  return (
+    <article className="flex flex-col rounded-xl border border-zinc-800/80 bg-gradient-to-b from-zinc-900/70 to-zinc-900/30 transition-colors hover:border-zinc-700">
+      <div className="flex items-start justify-between gap-3 p-4 pb-3">
+        <div className="min-w-0">
+          <h3 className="truncate text-sm font-medium text-zinc-100">{monitor.name}</h3>
+          <a
+            href={monitor.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            title={monitor.url}
+            className="mt-1 inline-flex max-w-full items-center gap-1 text-xs text-zinc-500 transition-colors hover:text-zinc-300"
+          >
+            <span className="truncate">{monitor.url.replace(/^https?:\/\//, "")}</span>
+            <ArrowUpRight className="h-3 w-3 shrink-0" />
+          </a>
+        </div>
+        <StatusBadge status={monitor.status} />
+      </div>
+
+      <dl className="grid grid-cols-2 gap-3 px-4 pb-4 text-xs">
+        <div>
+          <dt className="text-zinc-500">Last checked</dt>
+          <dd className="mt-0.5 text-zinc-300" title={fullDate(monitor.lastCheckedAt)}>
+            {timeAgo(monitor.lastCheckedAt)}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-zinc-500">Last changed</dt>
+          <dd className="mt-0.5 text-zinc-300" title={fullDate(monitor.lastChangedAt)}>
+            {timeAgo(monitor.lastChangedAt, "No changes yet")}
+          </dd>
+        </div>
+      </dl>
+
+      <div className="mt-auto flex items-center justify-between gap-2 border-t border-zinc-800/80 px-4 py-2.5">
+        <p className="truncate text-xs text-zinc-500">
+          Checks {formatInterval(monitor.intervalMins)}
+        </p>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <button
+            type="button"
+            onClick={handleCheck}
+            disabled={busy}
+            className={btnSecondary}
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${checking ? "animate-spin" : ""}`} />
+            {checking ? "Checking" : "Check now"}
+          </button>
+          <button
+            type="button"
+            onClick={handleDelete}
+            disabled={busy}
+            aria-label={confirming ? `Confirm delete ${monitor.name}` : `Delete ${monitor.name}`}
+            className={confirming ? btnDangerActive : btnDanger}
+          >
+            {deleting ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Trash2 className="h-3.5 w-3.5" />
+            )}
+            {deleting ? "Deleting" : confirming ? "Confirm" : "Delete"}
+          </button>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+export function MonitorCardSkeleton() {
+  return (
+    <div
+      aria-hidden="true"
+      className="flex flex-col rounded-xl border border-zinc-800/80 bg-zinc-900/40"
+    >
+      <div className="flex items-start justify-between gap-3 p-4 pb-3">
+        <div className="space-y-2">
+          <Skeleton className="h-4 w-36" />
+          <Skeleton className="h-3 w-48 max-w-full" />
+        </div>
+        <Skeleton className="h-6 w-16 rounded-full" />
+      </div>
+      <div className="grid grid-cols-2 gap-3 px-4 pb-4">
+        <div className="space-y-1.5">
+          <Skeleton className="h-3 w-16" />
+          <Skeleton className="h-3.5 w-20" />
+        </div>
+        <div className="space-y-1.5">
+          <Skeleton className="h-3 w-16" />
+          <Skeleton className="h-3.5 w-20" />
+        </div>
+      </div>
+      <div className="flex items-center justify-between border-t border-zinc-800/80 px-4 py-2.5">
+        <Skeleton className="h-3 w-24" />
+        <div className="flex gap-1.5">
+          <Skeleton className="h-8 w-24" />
+          <Skeleton className="h-8 w-20" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+===== components\Sidebar.tsx =====
+"use client";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { Activity, Bell, LayoutDashboard } from "lucide-react";
+
+// 1. Tell TypeScript to expect the prop
+interface SidebarProps {
+  onNavigate?: () => void;
+}
+
+// 2. Accept the prop
+export default function Sidebar({ onNavigate }: SidebarProps) {
+  const pathname = usePathname();
+
+  const links = [
+    { name: "Dashboard", href: "/", icon: LayoutDashboard },
+    { name: "Monitors", href: "/monitors", icon: Activity },
+    { name: "Alerts", href: "/alerts", icon: Bell },
+  ];
+
+  return (
+    <aside className="w-64 border-r border-zinc-800 bg-zinc-900/50 flex flex-col h-full shrink-0">
+      <div className="h-16 flex items-center px-6 border-b border-zinc-800 gap-3">
+        <div className="w-8 h-8 bg-indigo-500 rounded-lg flex items-center justify-center font-bold text-white">A</div>
+        <span className="font-bold text-lg tracking-tight text-white">Aegis Watch</span>
+      </div>
+      <nav className="flex-1 p-4 space-y-2">
+        {links.map((link) => {
+          const Icon = link.icon;
+          const isActive = pathname === link.href;
+          return (
+            <Link
+              key={link.name}
+              href={link.href}
+              onClick={onNavigate} // 3. Call the prop when a link is clicked
+              className={`flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${
+                isActive ? "bg-indigo-500/10 text-indigo-400" : "text-zinc-400 hover:bg-zinc-800 hover:text-white"
+              }`}
+            >
+              <Icon size={18} /> {link.name}
+            </Link>
+          );
+        })}
+      </nav>
+    </aside>
+  );
+}
+
+===== components\Skeleton.tsx =====
+export default function Skeleton({ className = "" }: { className?: string }) {
+  return (
+    <div
+      aria-hidden="true"
+      className={`animate-pulse rounded-md bg-zinc-800/70 ${className}`}
+    />
+  );
+}
+
+===== components\StatusBadge.tsx =====
+const STYLES = {
+  OK: {
+    label: "OK",
+    dot: "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]",
+    text: "text-emerald-400",
+  },
+  ERROR: {
+    label: "Error",
+    dot: "bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)]",
+    text: "text-red-400",
+  },
+  PENDING: {
+    label: "Pending",
+    dot: "bg-amber-500",
+    text: "text-amber-400",
+  },
+} as const;
+
+export default function StatusBadge({ status }: { status: string }) {
+  const normalized = (status ?? "").toUpperCase();
+  const key = normalized === "OK" ? "OK" : normalized === "ERROR" ? "ERROR" : "PENDING";
+  const s = STYLES[key];
+
+  return (
+    <span
+      className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border border-zinc-800 bg-zinc-900/80 px-2.5 py-1 text-xs font-medium ${s.text}`}
+    >
+      <span className={`h-1.5 w-1.5 rounded-full ${s.dot}`} aria-hidden="true" />
+      {s.label}
+    </span>
+  );
+}
+
+===== lib\api.ts =====
+export type MonitorStatus = "OK" | "ERROR" | "PENDING";
+
+export interface Monitor {
+  id: string;
+  url: string;
+  name: string;
+  intervalMins: number;
+  status: MonitorStatus;
+  lastCheckedAt: string | null;
+  lastChangedAt: string | null;
+}
+
+export interface Alert {
+  id: string;
+  summary: string;
+  sentAt: string;
+  monitor: {
+    name: string;
+    url: string;
+  };
+}
+
+export interface CreateMonitorInput {
+  url: string;
+  name: string;
+  intervalMins: number;
+  /** 1-100 (percent) */
+  sensitivity: number;
+}
+
+export const API_BASE = (
+  process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000"
+).replace(/\/+$/, "");
+
+const API_KEY = process.env.NEXT_PUBLIC_API_KEY || "";
+
+export class ApiError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
+async function request<T>(
+  path: string,
+  init: { method?: string; body?: unknown } = {}
+): Promise<T> {
+  const headers: Record<string, string> = {
+    Accept: "application/json",
+    "x-api-key": API_KEY,
+  };
+  // Only send a JSON content type when there is a body; some servers reject
+  // empty bodies that claim to be JSON (e.g. on DELETE).
+  if (init.body !== undefined) headers["Content-Type"] = "application/json";
+
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      method: init.method ?? "GET",
+      headers,
+      body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
+      cache: "no-store",
+    });
+  } catch {
+    throw new ApiError(
+      `Can't reach the API at ${API_BASE}. Check that the server is running and that CORS allows this origin and the x-api-key header.`,
+      0
+    );
+  }
+
+  const text = await res.text();
+  let data: unknown = undefined;
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = text;
+    }
+  }
+
+  if (!res.ok) {
+    let message =
+      res.status === 401 || res.status === 403
+        ? "The API rejected the request. Check NEXT_PUBLIC_API_KEY."
+        : `Request failed with status ${res.status}.`;
+
+    if (data && typeof data === "object") {
+      const body = data as { message?: unknown; error?: unknown };
+      const m = body.message ?? body.error;
+      if (typeof m === "string" && m) message = m;
+      else if (Array.isArray(m) && m.length) message = m.join(", ");
+    }
+    throw new ApiError(message, res.status);
+  }
+
+  return data as T;
+}
+
+export const getMonitors = () => request<Monitor[]>("/monitors");
+
+export const createMonitor = (input: CreateMonitorInput) =>
+  request<Monitor>("/monitors", { method: "POST", body: input });
+
+export const deleteMonitor = (id: string) =>
+  request<void>(`/monitors/${encodeURIComponent(id)}`, { method: "DELETE" });
+
+export const checkMonitor = (id: string) =>
+  request<unknown>(`/monitors/${encodeURIComponent(id)}/check`, {
+    method: "POST",
+  });
+
+export const getAlerts = () => request<Alert[]>("/alerts");
+
+export function getErrorMessage(err: unknown): string {
+  return err instanceof Error && err.message
+    ? err.message
+    : "Something went wrong. Try again.";
+}
+
+===== lib\format.ts =====
+import { format, formatDistanceToNow } from "date-fns";
+
+function toDate(value?: string | null): Date | null {
+  if (!value) return null;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+export function timeAgo(value?: string | null, fallback = "Never"): string {
+  const d = toDate(value);
+  return d ? formatDistanceToNow(d, { addSuffix: true }) : fallback;
+}
+
+export function fullDate(value?: string | null): string {
+  const d = toDate(value);
+  return d ? format(d, "PPpp") : "";
+}
+
+export function timestamp(value?: string | null): number {
+  return toDate(value)?.getTime() ?? 0;
+}
+
+export function formatInterval(mins: number): string {
+  if (mins % 1440 === 0) {
+    const days = mins / 1440;
+    return days === 1 ? "daily" : `every ${days} days`;
+  }
+  if (mins % 60 === 0) {
+    const hours = mins / 60;
+    return hours === 1 ? "hourly" : `every ${hours} hours`;
+  }
+  return `every ${mins} min`;
+}
+
+===== lib\styles.ts =====
+const base =
+  "inline-flex items-center justify-center gap-2 rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 disabled:pointer-events-none disabled:opacity-50";
+
+export const btnPrimary = `${base} h-9 bg-zinc-100 px-3.5 text-zinc-900 hover:bg-white`;
+export const btnSecondary = `${base} h-8 border border-zinc-800 bg-zinc-900 px-3 text-zinc-200 hover:border-zinc-700 hover:bg-zinc-800`;
+export const btnGhost = `${base} h-9 px-3.5 text-zinc-400 hover:bg-zinc-800/70 hover:text-zinc-100`;
+export const btnDanger = `${base} h-8 px-3 text-zinc-400 hover:bg-red-500/10 hover:text-red-300`;
+export const btnDangerActive = `${base} h-8 bg-red-500/10 px-3 text-red-300 hover:bg-red-500/20`;

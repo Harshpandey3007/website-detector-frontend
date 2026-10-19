@@ -44,7 +44,7 @@ export default function AddMonitorModal({ open, onClose, onCreated }: Props) {
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
   const [intervalMins, setIntervalMins] = useState(60);
-  const [sensitivity, setSensitivity] = useState(50);
+  const [sensitivity, setSensitivity] = useState(1);
   const [errors, setErrors] = useState<{ name?: string; url?: string }>({});
   const [submitting, setSubmitting] = useState(false);
 
@@ -54,7 +54,7 @@ export default function AddMonitorModal({ open, onClose, onCreated }: Props) {
     setName("");
     setUrl("");
     setIntervalMins(60);
-    setSensitivity(50);
+    setSensitivity(1);
     setErrors({});
     setSubmitting(false);
     const t = setTimeout(() => nameRef.current?.focus(), 30);
@@ -223,12 +223,43 @@ export default function AddMonitorModal({ open, onClose, onCreated }: Props) {
           </div>
 
           <div>
-            <div className="mb-2.5 flex items-center justify-between">
-              <label htmlFor={sensitivityId} className="text-sm font-medium text-zinc-200">
-                Sensitivity
-              </label>
-              <span className="text-sm tabular-nums text-zinc-400">{sensitivity}%</span>
-            </div>
+            <div>
+  <div className="mb-2.5 flex items-center justify-between">
+    <label htmlFor={sensitivityId} className="text-sm font-medium text-zinc-200">
+      Alert threshold
+    </label>
+    <span className="text-sm tabular-nums text-zinc-400">
+      {sensitivity === 0 ? "Any change" : `≥ ${sensitivity}% of the page`}
+    </span>
+  </div>
+  <input
+    id={sensitivityId}
+    type="range"
+    min={0}
+    max={25}
+    step={1}
+    value={sensitivity}
+    onChange={(e) => setSensitivity(Number(e.target.value))}
+    disabled={submitting}
+    className="range w-full"
+    style={{ background: `linear-gradient(to right, #6366f1 ${(sensitivity / 25) * 100}%, #27272a ${(sensitivity / 25) * 100}%)` }}
+  />
+  <div className="mt-2.5 flex flex-wrap gap-2">
+    {[{ v: 0, l: "Hair-trigger" }, { v: 1, l: "Sensitive" }, { v: 5, l: "Balanced" }, { v: 20, l: "Major only" }].map((p) => (
+      <button
+        key={p.v}
+        type="button"
+        onClick={() => setSensitivity(p.v)}
+        className={`rounded-full border px-2.5 py-1 text-xs transition-colors ${
+          sensitivity === p.v ? "border-indigo-500/50 bg-indigo-500/10 text-indigo-200" : "border-zinc-800 text-zinc-400 hover:text-zinc-200"
+        }`}
+      >
+        {p.l}
+      </button>
+    ))}
+  </div>
+  <p className="mt-2 text-xs text-zinc-500">Ignore changes smaller than this share of the page text.</p>
+</div>
             <input
               id={sensitivityId}
               type="range"
