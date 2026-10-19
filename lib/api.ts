@@ -65,7 +65,11 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
-  const headers: Record<string, string> = { Accept: "application/json", "x-api-key": API_KEY };
+  const headers = {
+  "Content-Type": "application/json",
+  "x-api-key": API_KEY,
+  "ngrok-skip-browser-warning": "true", 
+};
   // Only send a JSON content type when there is a body; some servers reject
   // empty bodies that claim to be JSON (e.g. on DELETE).
   if (init.body !== undefined) headers["Content-Type"] = "application/json";
