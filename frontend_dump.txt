@@ -4,97 +4,750 @@
 ===== app\alerts\page.tsx =====
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
-import {
-  AlertTriangle,
-  Bell,
-  CheckCircle2,
-  Globe,
-  Plus,
-  type LucideIcon,
-} from "lucide-react";
-import {
-  getAlerts,
-  getErrorMessage,
-  getMonitors,
-  type Alert,
-  type Monitor,
-} from "@/lib/api";
+import { Search } from "lucide-react";
+import { getAlerts, getErrorMessage, type Alert } from "@/lib/api";
 import { timestamp } from "@/lib/format";
-import { btnSecondary } from "@/lib/styles";
+import { inputCls } from "@/lib/styles";
 import { useShell } from "@/components/AppShell";
+import { useLive } from "@/components/LiveProvider";
 import AlertItem, { AlertItemSkeleton } from "@/components/AlertItem";
 import ErrorState from "@/components/ErrorState";
-import MonitorCard, { MonitorCardSkeleton } from "@/components/MonitorCard";
-import Skeleton from "@/components/Skeleton";
 
-type Tone = "default" | "ok" | "error";
+type Filter = "all" | "change" | "status";
+const FILTERS: Array<{ id: Filter; label: string }> = [
+  { id: "all", label: "All" },
+  { id: "change", label: "Changes" },
+  { id: "status", label: "Problems" },
+];
 
-const ICON_TONE: Record<Tone, string> = {
-  default: "text-zinc-400",
-  ok: "text-emerald-400",
-  error: "text-red-400",
+export default function AlertsPage() {
+  const { refreshKey } = useShell();
+  const { tick } = useLive();
+  const [alerts, setAlerts] = useState<Alert[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState<Filter>("all");
+  const [q, setQ] = useState("");
+
+  const load = useCallback(async () => {
+    try {
+      setAlerts(await getAlerts());
+      setError(null);
+    } catch (err) {
+      const message = getErrorMessage(err);
+      setError(message);
+      toast.error(message, { id: "alerts-load-error" });
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load, refreshKey, tick]);
+
+  const visible = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    return [...(alerts ?? [])]
+      .sort((a, b) => timestamp(b.sentAt) - timestamp(a.sentAt))
+      .filter((a) => filter === "all" || (a.kind ?? "change") === filter)
+      .filter((a) => !needle || `${a.monitor?.name ?? ""} ${a.summary} ${a.monitor?.url ?? ""}`.toLowerCase().includes(needle));
+  }, [alerts, filter, q]);
+
+  if (error && alerts === null) return <ErrorState message={error} onRetry={() => { setError(null); load(); }} />;
+
+  return (
+    <div className="animate-fade-in">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-800 px-4 py-2">
+        <div className="flex items-center gap-1">
+          {FILTERS.map((f) => (
+            <button
+              key={f.id}
+              type="button"
+              onClick={() => setFilter(f.id)}
+              aria-pressed={filter === f.id}
+              className={`h-7 rounded-md px-2.5 text-[13px] transition-colors ${filter === f.id ? "bg-zinc-800 text-zinc-100" : "text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200"}`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+        <div className="relative w-full sm:w-64">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-600" />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search alerts" aria-label="Search alerts" className={`${inputCls} h-7 pl-8`} />
+        </div>
+      </div>
+
+      {alerts === null ? (
+        <ul>{Array.from({ length: 8 }).map((_, i) => <AlertItemSkeleton key={i} />)}</ul>
+      ) : visible.length === 0 ? (
+        <div className="px-6 py-20 text-center">
+          <p className="text-[13px] font-medium text-zinc-200">{alerts.length === 0 ? "No alerts yet" : "Nothing matches"}</p>
+          <p className="mt-1 text-[13px] text-zinc-500">
+            {alerts.length === 0 ? "When a monitor detects a change, it will land here." : "Try a different filter or search term."}
+          </p>
+        </div>
+      ) : (
+        <ul>{visible.map((a) => <AlertItem key={a.id} alert={a} showUrl />)}</ul>
+      )}
+    </div>
+  );
+}
+
+===== app\globals.css =====
+@import "tailwindcss";
+
+/*
+  Linear-style design tokens.
+  Overriding Tailwind's zinc/indigo scales re-skins every existing class
+  (including AddMonitorModal) without touching each component.
+*/
+@theme {
+  --font-sans: var(--font-inter), "Inter", ui-sans-serif, system-ui, sans-serif;
+
+  /* Denser type scale: 13px body like Linear */
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1rem;
+  --text-sm: 0.8125rem;
+  --text-sm--line-height: 1.25rem;
+
+  --color-canvas: #08090a;
+
+  /* neutrals: 950 = panel, 900 = raised, 800 = borders/hover */
+  --color-zinc-50: #f7f8f8;
+  --color-zinc-100: #f2f3f5;
+  --color-zinc-200: #d0d6e0;
+  --color-zinc-300: #bcc2cc;
+  --color-zinc-400: #8a8f98;
+  --color-zinc-500: #6b6f76;
+  --color-zinc-600: #4c4f56;
+  --color-zinc-700: #34363c;
+  --color-zinc-800: #26282d;
+  --color-zinc-900: #17181b;
+  --color-zinc-950: #101113;
+
+  /* the one accent: Linear's periwinkle */
+  --color-indigo-200: #c4c9f6;
+  --color-indigo-300: #a3acf2;
+  --color-indigo-400: #7480e4;
+  --color-indigo-500: #5e6ad2;
+  --color-indigo-600: #4f5ac0;
+
+  /* calmer status colors */
+  --color-emerald-300: #7fd4a8;
+  --color-emerald-400: #4cb782;
+  --color-emerald-500: #3da16c;
+  --color-red-300: #f19999;
+  --color-red-400: #eb5757;
+  --color-red-500: #d94848;
+  --color-amber-400: #f2c94c;
+  --color-orange-400: #f2994a;
+  --color-orange-500: #e0832f;
+
+  --animate-fade-in: fade-in 0.12s ease-out both;
+  --animate-modal-in: modal-in 0.18s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-slide-up: slide-up 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
+
+  @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes modal-in {
+    from { opacity: 0; transform: translateY(6px) scale(0.985); }
+    to { opacity: 1; transform: none; }
+  }
+  @keyframes slide-up {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: none; }
+  }
+}
+
+html { color-scheme: dark; }
+
+body {
+  background-color: var(--color-canvas);
+  color: var(--color-zinc-100);
+  font-feature-settings: "cv01", "ss03";
+  letter-spacing: -0.011em;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection { background: rgba(94, 106, 210, 0.45); }
+
+/* Keycap hint, used for shortcuts */
+.kbd {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 18px; height: 18px; padding: 0 4px;
+  border: 1px solid var(--color-zinc-800); border-radius: 4px;
+  background: var(--color-zinc-900); color: var(--color-zinc-400);
+  font-size: 10px; font-weight: 500; letter-spacing: 0;
+}
+
+/* Range slider used by the modal and the swipe comparison */
+.range { -webkit-appearance: none; appearance: none; height: 4px; border-radius: 999px; outline: none; background: #26282d; cursor: pointer; }
+.range::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none; width: 14px; height: 14px; border-radius: 999px;
+  background: #fff; border: 2px solid #5e6ad2; box-shadow: 0 0 0 3px rgba(94, 106, 210, 0.2);
+}
+.range::-moz-range-thumb { width: 10px; height: 10px; border-radius: 999px; background: #fff; border: 2px solid #5e6ad2; }
+
+.scroll-thin { scrollbar-width: thin; scrollbar-color: #34363c transparent; }
+.scroll-thin::-webkit-scrollbar { width: 8px; height: 8px; }
+.scroll-thin::-webkit-scrollbar-thumb { background: #34363c; border-radius: 999px; border: 2px solid transparent; background-clip: content-box; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+
+
+===== app\layout.tsx =====
+import type { Metadata } from "next";
+import { Inter } from "next/font/google";
+import { Toaster } from "react-hot-toast";
+import AppShell from "@/components/AppShell";
+import { LiveProvider } from "@/components/LiveProvider";
+import "./globals.css";
+
+const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
+
+export const metadata: Metadata = {
+  title: "Aegis Watch",
+  description: "Monitor web pages and get alerted, with a visual diff, the moment they change.",
 };
 
-function StatCard({
-  label,
-  value,
-  icon: Icon,
-  loading,
-  tone = "default",
-}: {
-  label: string;
-  value: number;
-  icon: LucideIcon;
-  loading: boolean;
-  tone?: Tone;
-}) {
-  const valueTone = tone === "error" && value > 0 ? "text-red-300" : "text-zinc-100";
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="rounded-xl border border-zinc-800/80 bg-gradient-to-b from-zinc-900/70 to-zinc-900/30 p-4 sm:p-5">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-zinc-400">{label}</p>
-        <Icon className={`h-4 w-4 ${ICON_TONE[tone]}`} />
+    <html lang="en" className={inter.variable}>
+      <body className="font-sans">
+        <LiveProvider>
+          <AppShell>{children}</AppShell>
+        </LiveProvider>
+        <Toaster
+          position="bottom-right"
+          toastOptions={{
+            style: {
+              background: "#17181b", color: "#f2f3f5", border: "1px solid #26282d",
+              fontSize: "13px", borderRadius: "8px", padding: "8px 12px",
+            },
+          }}
+        />
+      </body>
+    </html>
+  );
+}
+
+
+===== app\monitors\page.tsx =====
+"use client";
+
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import toast from "react-hot-toast";
+import { Globe, Plus, Search } from "lucide-react";
+import { getErrorMessage, getMonitors, type Monitor } from "@/lib/api";
+import { timestamp } from "@/lib/format";
+import { btnPrimary, inputCls } from "@/lib/styles";
+import { useShell } from "@/components/AppShell";
+import { useLive } from "@/components/LiveProvider";
+import ErrorState from "@/components/ErrorState";
+import MonitorRow, { MonitorRowSkeleton } from "@/components/MonitorRow";
+import { StatusIcon, type StatusKind } from "@/components/StatusBadge";
+
+type Filter = "all" | "ok" | "problem";
+
+function GroupHeader({ icon, label, count }: { icon: StatusKind; label: string; count: number }) {
+  return (
+    <div className="flex h-9 items-center gap-2 border-b border-zinc-800/60 bg-zinc-900/40 px-4">
+      <StatusIcon status={icon} size={13} />
+      <span className="text-[13px] font-medium text-zinc-200">{label}</span>
+      <span className="text-xs tabular-nums text-zinc-500">{count}</span>
+    </div>
+  );
+}
+
+export default function MonitorsPage() {
+  const router = useRouter();
+  const { refreshKey, openAddMonitor } = useShell();
+  const { tick } = useLive();
+  const searchRef = useRef<HTMLInputElement>(null);
+  const [monitors, setMonitors] = useState<Monitor[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState<Filter>("all");
+  const [q, setQ] = useState("");
+  const [cursor, setCursor] = useState(-1);
+
+  const load = useCallback(async () => {
+    try {
+      setMonitors(await getMonitors());
+      setError(null);
+    } catch (err) {
+      const message = getErrorMessage(err);
+      setError(message);
+      toast.error(message, { id: "monitors-load-error" });
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load, refreshKey, tick]);
+
+  const { needsAttention, healthy } = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    const byRecent = (a: Monitor, b: Monitor) => timestamp(b.lastChangedAt) - timestamp(a.lastChangedAt) || a.name.localeCompare(b.name);
+    const matches = (monitors ?? []).filter((m) => !needle || `${m.name} ${m.url}`.toLowerCase().includes(needle));
+    const ok = (m: Monitor) => (m.status ?? "").toUpperCase() === "OK";
+    return {
+      needsAttention: filter === "ok" ? [] : matches.filter((m) => !ok(m)).sort(byRecent),
+      healthy: filter === "problem" ? [] : matches.filter(ok).sort(byRecent),
+    };
+  }, [monitors, filter, q]);
+
+  const visible = useMemo(() => [...needsAttention, ...healthy], [needsAttention, healthy]);
+
+  // Linear-style keyboard navigation: j/k or arrows to move, Enter to open, / to search
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement;
+      if (t.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName) || e.metaKey || e.ctrlKey || e.altKey) return;
+      const k = e.key.toLowerCase();
+      if (k === "/") { e.preventDefault(); searchRef.current?.focus(); return; }
+      if (!visible.length) return;
+      if (k === "j" || k === "arrowdown") {
+        e.preventDefault();
+        setCursor((c) => { const n = Math.min(c + 1, visible.length - 1); document.getElementById(`row-${visible[n].id}`)?.scrollIntoView({ block: "nearest" }); return n; });
+      } else if (k === "k" || k === "arrowup") {
+        e.preventDefault();
+        setCursor((c) => { const n = Math.max(c - 1, 0); document.getElementById(`row-${visible[n].id}`)?.scrollIntoView({ block: "nearest" }); return n; });
+      } else if (k === "enter" && cursor >= 0 && visible[cursor]) {
+        router.push(`/monitors/${visible[cursor].id}`);
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [visible, cursor, router]);
+
+  useEffect(() => { setCursor(-1); }, [filter, q]);
+
+  if (error && monitors === null) return <ErrorState message={error} onRetry={() => { setError(null); load(); }} />;
+
+  if (monitors === null) {
+    return <div className="animate-fade-in">{Array.from({ length: 7 }).map((_, i) => <MonitorRowSkeleton key={i} />)}</div>;
+  }
+
+  if (monitors.length === 0) {
+    return (
+      <div className="flex h-full min-h-[60vh] flex-col items-center justify-center px-6 text-center">
+        <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-zinc-800 bg-zinc-900 text-zinc-500"><Globe className="h-5 w-5" /></div>
+        <h2 className="mt-4 text-[15px] font-semibold tracking-tight">No monitors yet</h2>
+        <p className="mt-1 max-w-sm text-[13px] text-zinc-500">Add a page to watch. You&rsquo;ll get a Telegram or email alert, with a visual diff, when it changes.</p>
+        <button type="button" onClick={openAddMonitor} className={`${btnPrimary} mt-5`}>
+          <Plus className="h-3.5 w-3.5" /> New monitor <span className="kbd !border-white/20 !bg-white/10 !text-white/80">C</span>
+        </button>
       </div>
-      <div className="mt-3 h-9">
-        {loading ? (
-          <Skeleton className="h-8 w-16" />
-        ) : (
-          <p className={`text-3xl font-semibold tabular-nums tracking-tight ${valueTone}`}>
-            {value}
+    );
+  }
+
+  const count = (f: Filter) => (f === "all" ? monitors.length : monitors.filter((m) => ((m.status ?? "").toUpperCase() === "OK") === (f === "ok")).length);
+  const chip = (f: Filter, label: string) => (
+    <button
+      key={f}
+      type="button"
+      onClick={() => setFilter(f)}
+      aria-pressed={filter === f}
+      className={`inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[13px] transition-colors ${filter === f ? "bg-zinc-800 text-zinc-100" : "text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200"}`}
+    >
+      {label} <span className="text-xs tabular-nums text-zinc-500">{count(f)}</span>
+    </button>
+  );
+
+  return (
+    <div className="animate-fade-in">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-800 px-4 py-2">
+        <div className="flex items-center gap-1">
+          {chip("all", "All")}
+          {chip("ok", "Healthy")}
+          {chip("problem", "Problems")}
+        </div>
+        <div className="relative w-full sm:w-64">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-600" />
+          <input ref={searchRef} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter…  ( / )" aria-label="Filter monitors" className={`${inputCls} h-7 pl-8`} />
+        </div>
+      </div>
+
+      {visible.length === 0 ? (
+        <p className="px-6 py-16 text-center text-[13px] text-zinc-500">No monitors match your filters.</p>
+      ) : (
+        <>
+          {needsAttention.length > 0 && (
+            <section>
+              <GroupHeader icon="ERROR" label="Needs attention" count={needsAttention.length} />
+              {needsAttention.map((m) => <MonitorRow key={m.id} monitor={m} onChanged={load} active={visible[cursor]?.id === m.id} />)}
+            </section>
+          )}
+          {healthy.length > 0 && (
+            <section>
+              <GroupHeader icon="OK" label="Healthy" count={healthy.length} />
+              {healthy.map((m) => <MonitorRow key={m.id} monitor={m} onChanged={load} active={visible[cursor]?.id === m.id} />)}
+            </section>
+          )}
+          <p className="px-4 py-4 text-xs text-zinc-600">
+            <span className="kbd">J</span> <span className="kbd">K</span> to move · <span className="kbd">↵</span> to open · <span className="kbd">/</span> to filter
           </p>
-        )}
+        </>
+      )}
+    </div>
+  );
+}
+
+
+===== app\monitors\[id]\page.tsx =====
+"use client";
+
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import Link from "next/link";
+import { useParams, useSearchParams } from "next/navigation";
+import toast from "react-hot-toast";
+import { ArrowUpRight, Camera, ChevronLeft, ExternalLink, GitCompareArrows, RefreshCw, Sparkles } from "lucide-react";
+import {
+  assetUrl, checkMonitor, getErrorMessage, getHistory, getMonitor,
+  type Monitor, type Snapshot,
+} from "@/lib/api";
+import { formatInterval, fullDate, timeAgo } from "@/lib/format";
+import { btnSecondary } from "@/lib/styles";
+import { useLive } from "@/components/LiveProvider";
+import ActivityChart from "@/components/ActivityChart";
+import AskAI from "@/components/AskAI";
+import CompareView from "@/components/CompareView";
+import ErrorState from "@/components/ErrorState";
+import Skeleton from "@/components/Skeleton";
+import SnapshotTimeline from "@/components/SnapshotTimeline";
+import StatusBadge from "@/components/StatusBadge";
+
+type Tab = "snapshot" | "compare" | "ask";
+type Pair = { v1: string; v2: string };
+
+const TABS: Array<{ id: Tab; label: string; icon: typeof Camera }> = [
+  { id: "compare", label: "Compare", icon: GitCompareArrows },
+  { id: "snapshot", label: "Screenshot", icon: Camera },
+  { id: "ask", label: "Ask AI", icon: Sparkles },
+];
+
+function Prop({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex items-center gap-3 py-1.5 text-[13px]">
+      <dt className="w-24 shrink-0 text-zinc-500">{label}</dt>
+      <dd className="min-w-0 flex-1 truncate text-zinc-200">{children}</dd>
+    </div>
+  );
+}
+
+function PageSkeleton() {
+  return (
+    <div className="lg:flex" aria-busy="true">
+      <div className="flex-1 space-y-4 px-6 py-5">
+        <Skeleton className="h-4 w-20" />
+        <Skeleton className="h-7 w-64" />
+        <Skeleton className="h-4 w-80" />
+        <Skeleton className="h-96 w-full" />
+      </div>
+      <div className="space-y-3 border-zinc-800 px-4 py-5 lg:w-72 lg:border-l">
+        {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-5 w-full" />)}
       </div>
     </div>
   );
 }
 
-function SectionHeader({
-  title,
-  href,
-  linkLabel,
-}: {
-  title: string;
-  href: string;
-  linkLabel: string;
-}) {
+function MonitorDetail() {
+  const { id } = useParams<{ id: string }>();
+  const search = useSearchParams();
+  const { scanning, tick, lastChange } = useLive();
+
+  const [monitor, setMonitor] = useState<Monitor | null>(null);
+  const [history, setHistory] = useState<Snapshot[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const [tab, setTab] = useState<Tab>("snapshot");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [pair, setPair] = useState<Pair | null>(null);
+  const [picked, setPicked] = useState<string[]>([]);
+  const [queued, setQueued] = useState(false);
+
+  const initialised = useRef(false);
+  const handledChange = useRef(0);
+  const mountedAt = useRef(Date.now());
+
+  const load = useCallback(async () => {
+    try {
+      const [m, h] = await Promise.all([getMonitor(id), getHistory(id)]);
+      setMonitor(m);
+      setHistory(h);
+      setError(null);
+      return h;
+    } catch (err) {
+      setError(getErrorMessage(err));
+      return null;
+    }
+  }, [id]);
+
+  // Newest-first index, used to order a pair so v1 is always the older snapshot.
+  const indexOf = useMemo(() => new Map((history ?? []).map((s, i): [string, number] => [s.id, i])), [history]);
+  const orderPair = useCallback(
+    (a: string, b: string): Pair => ((indexOf.get(a) ?? 0) > (indexOf.get(b) ?? 0) ? { v1: a, v2: b } : { v1: b, v2: a }),
+    [indexOf]
+  );
+
+  // Initial load, and a refetch whenever the live stream reports a finished check
+  useEffect(() => { load(); }, [load, tick]);
+
+  // First time the history arrives: honour ?compare=a:b (from alert links), else show the latest change
+  useEffect(() => {
+    if (!history || initialised.current) return;
+    initialised.current = true;
+    setSelectedId(history[0]?.id ?? null);
+
+    const [a, b] = (search.get("compare") ?? "").split(":");
+    if (a && b && indexOf.has(a) && indexOf.has(b)) {
+      setPair(orderPair(a, b));
+      setTab("compare");
+    } else if (history.length >= 2) {
+      setPair({ v1: history[1].id, v2: history[0].id });
+      setTab("compare");
+    }
+  }, [history, indexOf, orderPair, search]);
+
+  // A change detected live for THIS monitor: jump straight to its visual diff
+  useEffect(() => {
+    // ignore changes that happened before this page opened (those arrive via ?compare=)
+    if (!lastChange || lastChange.monitorId !== id || lastChange.at < mountedAt.current || lastChange.at === handledChange.current) return;
+    handledChange.current = lastChange.at;
+    load().then(() => {
+      setPair({ v1: lastChange.prevSnapshotId, v2: lastChange.snapshotId });
+      setSelectedId(lastChange.snapshotId);
+      setTab("compare");
+    });
+  }, [lastChange, id, load]);
+
+  // "Checking…" ends when the live stream reports a finished check (or after 45s)
+  const isScanning = scanning.has(id);
+  const tickAtQueue = useRef(0);
+  useEffect(() => { if (queued && tick !== tickAtQueue.current && !isScanning) setQueued(false); }, [tick, queued, isScanning]);
+  useEffect(() => {
+    if (!queued) return;
+    const t = setTimeout(() => setQueued(false), 45_000);
+    return () => clearTimeout(t);
+  }, [queued]);
+
+  async function handleCheck() {
+    try {
+      await checkMonitor(id);
+      tickAtQueue.current = tick;
+      setQueued(true);
+      toast.success("Check queued. Results appear here live.");
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    }
+  }
+
+  function comparePrev(snapId: string) {
+    const idx = indexOf.get(snapId);
+    const older = idx === undefined ? undefined : history?.[idx + 1];
+    if (!older) return;
+    setPair({ v1: older.id, v2: snapId });
+    setTab("compare");
+  }
+
+  function togglePick(snapId: string) {
+    setPicked((p) => (p.includes(snapId) ? p.filter((x) => x !== snapId) : p.length >= 2 ? [p[1], snapId] : [...p, snapId]));
+  }
+
+  function compareSelected() {
+    if (picked.length !== 2) return;
+    setPair(orderPair(picked[0], picked[1]));
+    setPicked([]);
+    setTab("compare");
+  }
+
+  if (error && !monitor) return <ErrorState message={error} onRetry={() => { setError(null); load(); }} />;
+  if (!monitor || !history) return <PageSkeleton />;
+
+  const selected = history.find((s) => s.id === selectedId) ?? history[0];
+  const adjacent = pair ? (indexOf.get(pair.v1) ?? -2) === (indexOf.get(pair.v2) ?? -9) + 1 : false;
+  const checking = queued || isScanning;
+  const latest = history[0];
+
   return (
-    <div className="mb-3 flex items-center justify-between">
-      <h2 className="text-sm font-medium text-zinc-100">{title}</h2>
-      <Link
-        href={href}
-        className="text-xs text-zinc-500 transition-colors hover:text-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500"
-      >
-        {linkLabel}
+    <div className="animate-fade-in lg:flex">
+      {/* ───────── main column ───────── */}
+      <div className="min-w-0 flex-1 px-6 py-5">
+        <Link href="/monitors" className="inline-flex items-center gap-0.5 text-xs text-zinc-500 transition-colors hover:text-zinc-200">
+          <ChevronLeft className="h-3.5 w-3.5" /> Monitors
+        </Link>
+
+        <div className="mt-3 flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="truncate text-xl font-semibold tracking-tight">{monitor.name}</h2>
+            <a href={monitor.url} target="_blank" rel="noopener noreferrer"
+              className="mt-1 inline-flex max-w-full items-center gap-1 text-[13px] text-zinc-500 transition-colors hover:text-zinc-300">
+              <span className="truncate">{monitor.url}</span>
+              <ArrowUpRight className="h-3.5 w-3.5 shrink-0" />
+            </a>
+          </div>
+          <button type="button" onClick={handleCheck} disabled={checking} className={btnSecondary}>
+            <RefreshCw className={`h-3.5 w-3.5 ${checking ? "animate-spin" : ""}`} />
+            {checking ? "Checking…" : "Check now"}
+          </button>
+        </div>
+
+        {history.length === 0 ? (
+          <div className="mt-8 flex flex-col items-center rounded-lg border border-dashed border-zinc-800 px-6 py-16 text-center">
+            <Camera className="h-5 w-5 text-zinc-600" />
+            <p className="mt-3 text-[13px] font-medium text-zinc-200">No snapshots yet</p>
+            <p className="mt-1 text-[13px] text-zinc-500">The first check is queued automatically. Press &ldquo;Check now&rdquo; to run it immediately.</p>
+          </div>
+        ) : (
+          <>
+            <div role="tablist" aria-label="Views" className="mt-6 flex gap-5 border-b border-zinc-800">
+              {TABS.map(({ id: tid, label, icon: Icon }) => (
+                <button
+                  key={tid}
+                  role="tab"
+                  aria-selected={tab === tid}
+                  type="button"
+                  onClick={() => setTab(tid)}
+                  className={`-mb-px inline-flex items-center gap-1.5 border-b-2 pb-2.5 text-[13px] font-medium transition-colors ${
+                    tab === tid ? "border-indigo-500 text-zinc-100" : "border-transparent text-zinc-500 hover:text-zinc-300"
+                  }`}
+                >
+                  <Icon className="h-3.5 w-3.5" /> {label}
+                </button>
+              ))}
+            </div>
+
+            <div className="mt-5 space-y-4">
+              {tab === "snapshot" && selected && (
+                <div className="overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950">
+                  <div className="flex items-center gap-3 border-b border-zinc-800 bg-zinc-900/50 px-3 py-2">
+                    <span className="shrink-0 text-xs font-medium text-zinc-300">v{history.length - (indexOf.get(selected.id) ?? 0)}</span>
+                    <span className="min-w-0 flex-1 truncate text-xs text-zinc-500">{fullDate(selected.createdAt)}</span>
+                    {selected.id === latest.id && <span className="rounded bg-indigo-500/15 px-1.5 text-[10px] font-medium text-indigo-300">Latest</span>}
+                    <a href={assetUrl(selected.imagePath) ?? "#"} target="_blank" rel="noopener noreferrer" aria-label="Open screenshot in a new tab"
+                      className="text-zinc-500 transition-colors hover:text-zinc-200">
+                      <ExternalLink className="h-3.5 w-3.5" />
+                    </a>
+                  </div>
+                  <div className="scroll-thin max-h-[680px] overflow-auto">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={assetUrl(selected.imagePath) ?? ""} alt={`Screenshot from ${fullDate(selected.createdAt)}`} className="block w-full" />
+                  </div>
+                </div>
+              )}
+
+              {tab === "compare" &&
+                (pair ? (
+                  <CompareView monitorId={id} v1={pair.v1} v2={pair.v2} adjacent={adjacent} />
+                ) : (
+                  <div className="flex flex-col items-center rounded-lg border border-dashed border-zinc-800 px-6 py-14 text-center">
+                    <GitCompareArrows className="h-5 w-5 text-zinc-600" />
+                    <p className="mt-3 text-[13px] font-medium text-zinc-200">Pick two snapshots to compare</p>
+                    <p className="mt-1 max-w-sm text-[13px] text-zinc-500">
+                      Use &ldquo;vs previous&rdquo; on a snapshot, or select two. You need at least two snapshots, which means the page must change once.
+                    </p>
+                  </div>
+                ))}
+
+              {tab === "ask" && <AskAI monitorId={id} disabled={history.length === 0} />}
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* ───────── properties panel (Linear issue sidebar) ───────── */}
+      <aside className="scroll-thin shrink-0 space-y-6 border-t border-zinc-800 px-4 py-5 lg:sticky lg:top-0 lg:max-h-[calc(100dvh-4.5rem)] lg:w-72 lg:self-start lg:overflow-y-auto lg:border-l lg:border-t-0">
+        <section aria-label="Properties">
+          <h3 className="mb-1 text-xs font-medium text-zinc-500">Properties</h3>
+          <dl>
+            <Prop label="Status"><StatusBadge status={monitor.status} scanning={isScanning} /></Prop>
+            <Prop label="Checks">{formatInterval(monitor.intervalMins)}</Prop>
+            <Prop label="Alert at">{monitor.sensitivity === undefined ? "n/a" : monitor.sensitivity === 0 ? "Any change" : `≥ ${monitor.sensitivity}% changed`}</Prop>
+            <Prop label="Last checked"><span title={fullDate(monitor.lastCheckedAt)}>{timeAgo(monitor.lastCheckedAt)}</span></Prop>
+            <Prop label="Last changed"><span title={fullDate(monitor.lastChangedAt)}>{timeAgo(monitor.lastChangedAt, "No changes yet")}</span></Prop>
+            <Prop label="Snapshots">{history.length}</Prop>
+          </dl>
+        </section>
+
+        {history.length > 0 && (
+          <>
+            <section aria-label="Activity">
+              <ActivityChart dates={history.map((s) => s.createdAt)} label="Snapshots per day" />
+            </section>
+            <section aria-label="Snapshots">
+              <SnapshotTimeline
+                snapshots={history}
+                selectedId={selected?.id ?? null}
+                pair={pair}
+                picked={picked}
+                onSelect={(sid) => { setSelectedId(sid); setTab("snapshot"); }}
+                onComparePrev={comparePrev}
+                onTogglePick={togglePick}
+                onCompareSelected={compareSelected}
+              />
+            </section>
+          </>
+        )}
+      </aside>
+    </div>
+  );
+}
+
+// useSearchParams() must sit under a Suspense boundary for `next build`
+export default function MonitorDetailPage() {
+  return (
+    <Suspense fallback={<PageSkeleton />}>
+      <MonitorDetail />
+    </Suspense>
+  );
+}
+
+
+===== app\page.tsx =====
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
+import toast from "react-hot-toast";
+import { ArrowRight, Plus } from "lucide-react";
+import { getAlerts, getErrorMessage, getMonitors, type Alert, type Monitor } from "@/lib/api";
+import { timestamp } from "@/lib/format";
+import { btnSecondary } from "@/lib/styles";
+import { useShell } from "@/components/AppShell";
+import { useLive } from "@/components/LiveProvider";
+import ActivityChart from "@/components/ActivityChart";
+import AlertItem, { AlertItemSkeleton } from "@/components/AlertItem";
+import ErrorState from "@/components/ErrorState";
+import MonitorRow, { MonitorRowSkeleton } from "@/components/MonitorRow";
+import Skeleton from "@/components/Skeleton";
+
+function Stat({ label, value, loading, tone }: { label: string; value: number; loading: boolean; tone?: "ok" | "error" }) {
+  const color = tone === "error" && value > 0 ? "text-red-400" : tone === "ok" ? "text-emerald-400" : "text-zinc-100";
+  return (
+    <div className="px-5 py-4">
+      <p className="text-xs text-zinc-500">{label}</p>
+      <div className="mt-1 h-8">
+        {loading ? <Skeleton className="h-7 w-12" /> : <p className={`text-2xl font-semibold tabular-nums tracking-tight ${color}`}>{value}</p>}
+      </div>
+    </div>
+  );
+}
+
+function SectionHeader({ title, href, linkLabel }: { title: string; href: string; linkLabel: string }) {
+  return (
+    <div className="mb-2 flex items-center justify-between">
+      <h2 className="text-[13px] font-medium text-zinc-200">{title}</h2>
+      <Link href={href} className="inline-flex items-center gap-1 text-xs text-zinc-500 transition-colors hover:text-zinc-200">
+        {linkLabel} <ArrowRight className="h-3 w-3" />
       </Link>
     </div>
   );
 }
 
-export default function DashboardPage() {
+const panel = "overflow-hidden rounded-lg border border-zinc-800 bg-zinc-900/30";
+
+export default function OverviewPage() {
   const { refreshKey, openAddMonitor } = useShell();
+  const { tick, scanning } = useLive();
   const [monitors, setMonitors] = useState<Monitor[] | null>(null);
   const [alerts, setAlerts] = useState<Alert[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -112,311 +765,181 @@ export default function DashboardPage() {
     }
   }, []);
 
-  useEffect(() => {
-    load();
-  }, [load, refreshKey]);
-
-  const retry = () => {
-    setError(null);
-    load();
-  };
+  // Refetch on create AND whenever the live stream reports a finished check
+  useEffect(() => { load(); }, [load, refreshKey, tick]);
 
   const loading = !error && (monitors === null || alerts === null);
-
-  if (error && (monitors === null || alerts === null)) {
-    return <ErrorState message={error} onRetry={retry} />;
-  }
+  if (error && (monitors === null || alerts === null)) return <ErrorState message={error} onRetry={() => { setError(null); load(); }} />;
 
   const list = monitors ?? [];
   const alertList = alerts ?? [];
-  const isStatus = (m: Monitor, s: string) => (m.status ?? "").toUpperCase() === s;
+  const status = (m: Monitor) => (m.status ?? "").toUpperCase();
+  const healthy = list.filter((m) => status(m) === "OK").length;
+  const problems = list.filter((m) => status(m) === "ERROR" || status(m) === "BLOCKED").length;
 
-  const healthy = list.filter((m) => isStatus(m, "OK")).length;
-  const errored = list.filter((m) => isStatus(m, "ERROR")).length;
-
-  const recent = [...alertList]
-    .sort((a, b) => timestamp(b.sentAt) - timestamp(a.sentAt))
-    .slice(0, 6);
-
-  // Surface problems first, then the most recently changed pages
-  const topMonitors = [...list]
+  const recent = [...alertList].sort((a, b) => timestamp(b.sentAt) - timestamp(a.sentAt)).slice(0, 6);
+  const top = [...list]
     .sort((a, b) => {
-      const ae = isStatus(a, "ERROR") ? 1 : 0;
-      const be = isStatus(b, "ERROR") ? 1 : 0;
-      if (ae !== be) return be - ae;
-      return timestamp(b.lastChangedAt) - timestamp(a.lastChangedAt);
+      const ae = status(a) === "OK" ? 0 : 1;
+      const be = status(b) === "OK" ? 0 : 1;
+      return ae !== be ? be - ae : timestamp(b.lastChangedAt) - timestamp(a.lastChangedAt);
     })
-    .slice(0, 3);
+    .slice(0, 5);
 
   return (
-    <div className="space-y-8">
-      <section aria-label="Summary" className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
-        <StatCard label="Total monitors" value={list.length} icon={Globe} loading={loading} />
-        <StatCard label="Healthy" value={healthy} icon={CheckCircle2} loading={loading} tone="ok" />
-        <StatCard label="Errors" value={errored} icon={AlertTriangle} loading={loading} tone="error" />
-        <StatCard label="Total alerts" value={alertList.length} icon={Bell} loading={loading} />
+    <div className="mx-auto w-full max-w-5xl animate-slide-up space-y-8 px-6 py-6">
+      <div>
+        <h2 className="text-xl font-semibold tracking-tight">Overview</h2>
+        <p className="mt-1 text-[13px] text-zinc-500">
+          {loading ? "Loading…" : scanning.size > 0 ? `Scanning ${scanning.size} page${scanning.size === 1 ? "" : "s"} right now…` : "Everything Aegis Watch is keeping an eye on."}
+        </p>
+      </div>
+
+      <section aria-label="Summary" className={`${panel} grid grid-cols-2 divide-x divide-zinc-800 md:grid-cols-4`}>
+        <Stat label="Monitors" value={list.length} loading={loading} />
+        <Stat label="Healthy" value={healthy} loading={loading} tone="ok" />
+        <Stat label="Needs attention" value={problems} loading={loading} tone="error" />
+        <Stat label="Alerts sent" value={alertList.length} loading={loading} />
       </section>
 
-      <section aria-label="Recent activity">
-        <SectionHeader title="Recent activity" href="/alerts" linkLabel="View all alerts" />
-        <div className="overflow-hidden rounded-xl border border-zinc-800/80 bg-zinc-900/40">
+      <div className="grid gap-6 lg:grid-cols-5">
+        <section aria-label="Recent activity" className="lg:col-span-3">
+          <SectionHeader title="Recent activity" href="/alerts" linkLabel="All alerts" />
+          <div className={panel}>
+            {loading ? (
+              <ul>{Array.from({ length: 4 }).map((_, i) => <AlertItemSkeleton key={i} />)}</ul>
+            ) : recent.length === 0 ? (
+              <p className="px-6 py-10 text-center text-[13px] text-zinc-500">No alerts yet. Changes show up here the moment a monitor detects one.</p>
+            ) : (
+              <ul>{recent.map((a) => <AlertItem key={a.id} alert={a} />)}</ul>
+            )}
+          </div>
+        </section>
+
+        <section aria-label="Alert activity" className="lg:col-span-2">
+          <div className="mb-2 h-[20px]" aria-hidden="true" />
+          <div className={`${panel} p-4`}>
+            {loading ? <Skeleton className="h-24 w-full" /> : <ActivityChart dates={alertList.map((a) => a.sentAt)} label="Alerts per day" />}
+          </div>
+        </section>
+      </div>
+
+      <section aria-label="Monitors">
+        <SectionHeader title="Monitors" href="/monitors" linkLabel="All monitors" />
+        <div className={panel}>
           {loading ? (
-            <ul className="divide-y divide-zinc-800/60">
-              {Array.from({ length: 4 }).map((_, i) => (
-                <AlertItemSkeleton key={i} />
-              ))}
-            </ul>
-          ) : recent.length === 0 ? (
-            <div className="px-6 py-10 text-center">
-              <p className="text-sm font-medium text-zinc-200">No alerts yet</p>
-              <p className="mt-1 text-sm text-zinc-500">
-                Changes show up here as soon as a monitor detects one.
-              </p>
+            Array.from({ length: 3 }).map((_, i) => <MonitorRowSkeleton key={i} />)
+          ) : top.length === 0 ? (
+            <div className="flex flex-col items-center px-6 py-10 text-center">
+              <p className="text-[13px] text-zinc-400">No monitors yet.</p>
+              <button type="button" onClick={openAddMonitor} className={`${btnSecondary} mt-3`}>
+                <Plus className="h-3.5 w-3.5" /> New monitor <span className="kbd">C</span>
+              </button>
             </div>
           ) : (
-            <ul className="divide-y divide-zinc-800/60">
-              {recent.map((alert) => (
-                <AlertItem key={alert.id} alert={alert} />
-              ))}
-            </ul>
+            top.map((m) => <MonitorRow key={m.id} monitor={m} onChanged={load} />)
           )}
         </div>
       </section>
-
-      <section aria-label="Monitors">
-        <SectionHeader title="Monitors" href="/monitors" linkLabel="View all monitors" />
-        {loading ? (
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <MonitorCardSkeleton key={i} />
-            ))}
-          </div>
-        ) : topMonitors.length === 0 ? (
-          <div className="flex flex-col items-center rounded-xl border border-dashed border-zinc-800 px-6 py-10 text-center">
-            <p className="text-sm font-medium text-zinc-200">No monitors yet</p>
-            <p className="mt-1 text-sm text-zinc-500">
-              Add a page to watch and we&rsquo;ll alert you when it changes.
-            </p>
-            <button type="button" onClick={openAddMonitor} className={`${btnSecondary} mt-4`}>
-              <Plus className="h-3.5 w-3.5" />
-              Create monitor
-            </button>
-          </div>
-        ) : (
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {topMonitors.map((m) => (
-              <MonitorCard key={m.id} monitor={m} onChanged={load} />
-            ))}
-          </div>
-        )}
-      </section>
     </div>
   );
 }
 
-===== app\globals.css =====
-@import "tailwindcss";
 
-body {
-  background-color: #09090b;
-  color: #f4f4f5;
-}
-
-===== app\layout.tsx =====
-import type { Metadata } from "next";
-import { Inter } from "next/font/google";
-import { Toaster } from "react-hot-toast";
-import AppShell from "@/components/AppShell";
-import "./globals.css";
-
-const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
-
-export const metadata: Metadata = {
-  title: "Change Detector",
-  description: "Monitor web pages and get alerted when they change.",
-};
-
-export default function RootLayout({ children }: { children: React.ReactNode }) {
-  return (
-    <html lang="en" className={inter.variable}>
-      <body className="font-sans">
-        <AppShell>{children}</AppShell>
-        <Toaster
-          position="bottom-right"
-          toastOptions={{
-            style: {
-              background: "#18181b",
-              color: "#f4f4f5",
-              border: "1px solid #27272a",
-              fontSize: "14px",
-            },
-          }}
-        />
-      </body>
-    </html>
-  );
-}
-
-===== app\monitors\page.tsx =====
+===== app\settings\page.tsx =====
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
 import toast from "react-hot-toast";
-import { Globe, Plus } from "lucide-react";
-import { getErrorMessage, getMonitors, type Monitor } from "@/lib/api";
+import { CheckCircle2, Loader2, Mail, MessageSquare, Send, XCircle, type LucideIcon } from "lucide-react";
+import { getChannels, getErrorMessage, testChannels, type ChannelResult, type ChannelStatus } from "@/lib/api";
 import { btnPrimary } from "@/lib/styles";
-import { useShell } from "@/components/AppShell";
 import ErrorState from "@/components/ErrorState";
-import MonitorCard, { MonitorCardSkeleton } from "@/components/MonitorCard";
 import Skeleton from "@/components/Skeleton";
 
-export default function MonitorsPage() {
-  const { refreshKey, openAddMonitor } = useShell();
-  const [monitors, setMonitors] = useState<Monitor[] | null>(null);
+type Key = keyof ChannelStatus;
+const CHANNELS: Array<{ key: Key; name: string; blurb: string; env: string; icon: LucideIcon }> = [
+  { key: "telegram", name: "Telegram", blurb: "Instant push with the visual diff image and an Open button.", env: "TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID", icon: Send },
+  { key: "email", name: "Email", blurb: "HTML email with the AI summary and the diff image inline.", env: "SMTP_HOST, SMTP_USER, SMTP_PASS, EMAIL_TO", icon: Mail },
+  { key: "discord", name: "Discord", blurb: "Webhook message into any channel of your server.", env: "DISCORD_WEBHOOK_URL", icon: MessageSquare },
+];
+
+export default function ChannelsPage() {
+  const [status, setStatus] = useState<ChannelStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [testing, setTesting] = useState(false);
+  const [results, setResults] = useState<Partial<Record<Key, ChannelResult>>>({});
 
   const load = useCallback(async () => {
-    try {
-      setMonitors(await getMonitors());
-      setError(null);
-    } catch (err) {
-      const message = getErrorMessage(err);
-      setError(message);
-      toast.error(message, { id: "monitors-load-error" });
-    }
+    try { setStatus(await getChannels()); setError(null); }
+    catch (err) { setError(getErrorMessage(err)); }
   }, []);
+  useEffect(() => { load(); }, [load]);
 
-  useEffect(() => {
-    load();
-  }, [load, refreshKey]);
-
-  const retry = () => {
-    setError(null);
-    load();
-  };
-
-  if (error && monitors === null) {
-    return <ErrorState message={error} onRetry={retry} />;
+  async function runTest() {
+    setTesting(true);
+    try {
+      const { results: r } = await testChannels();
+      setResults(Object.fromEntries(r.map((x) => [x.channel, x])) as Partial<Record<Key, ChannelResult>>);
+      const sent = r.filter((x) => x.status === "sent").length;
+      if (sent) toast.success(`Test alert sent to ${sent} channel${sent === 1 ? "" : "s"}`);
+      else toast.error("No channel delivered the test. Check your .env.");
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    } finally {
+      setTesting(false);
+    }
   }
 
-  if (monitors === null) {
-    return (
-      <div className="space-y-5">
-        <Skeleton className="h-4 w-44" />
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <MonitorCardSkeleton key={i} />
-          ))}
-        </div>
-      </div>
-    );
-  }
+  if (error && !status) return <ErrorState message={error} onRetry={() => { setError(null); load(); }} />;
 
-  if (monitors.length === 0) {
-    return (
-      <div className="flex flex-col items-center rounded-xl border border-dashed border-zinc-800 bg-zinc-900/20 px-6 py-16 text-center">
-        <div className="flex h-12 w-12 items-center justify-center rounded-full border border-zinc-800 bg-zinc-900 text-zinc-400">
-          <Globe className="h-5 w-5" />
+  const anyConfigured = !!status && Object.values(status).some(Boolean);
+
+  return (
+    <div className="mx-auto w-full max-w-3xl animate-slide-up px-6 py-6">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h2 className="text-xl font-semibold tracking-tight">Notification channels</h2>
+          <p className="mt-1 max-w-md text-[13px] text-zinc-500">Every change fans out to all connected channels in parallel. Send a test before you rely on them.</p>
         </div>
-        <h2 className="mt-5 text-base font-semibold tracking-tight">No monitors yet</h2>
-        <p className="mt-1.5 max-w-sm text-sm text-zinc-400">
-          Add a page you want to keep an eye on. We&rsquo;ll check it on a schedule and alert you
-          when something changes.
-        </p>
-        <button type="button" onClick={openAddMonitor} className={`${btnPrimary} mt-6`}>
-          <Plus className="h-4 w-4" />
-          Create monitor
+        <button type="button" onClick={runTest} disabled={testing || !anyConfigured} className={btnPrimary}>
+          {testing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+          Send test alert
         </button>
       </div>
-    );
-  }
 
-  return (
-    <div className="space-y-5">
-      <p className="text-sm text-zinc-400">
-        {monitors.length} {monitors.length === 1 ? "page" : "pages"} being watched for changes.
-      </p>
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        {monitors.map((m) => (
-          <MonitorCard key={m.id} monitor={m} onChanged={load} />
-        ))}
-      </div>
+      <ul className="mt-6 overflow-hidden rounded-lg border border-zinc-800 bg-zinc-900/30">
+        {CHANNELS.map(({ key, name, blurb, env, icon: Icon }) => {
+          const on = status?.[key];
+          const res = results[key];
+          return (
+            <li key={key} className="flex items-start gap-4 border-b border-zinc-800/60 px-4 py-4 last:border-b-0">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-zinc-800 bg-zinc-900 text-zinc-300"><Icon className="h-4 w-4" /></span>
+              <div className="min-w-0 flex-1">
+                <p className="text-[13px] font-medium text-zinc-100">{name}</p>
+                <p className="mt-0.5 text-[13px] text-zinc-500">{blurb}</p>
+                {!on && status !== null && <p className="mt-2 inline-block rounded bg-zinc-900 px-2 py-1 font-mono text-[11px] text-zinc-500">{env}</p>}
+                {res && (
+                  <p className={`mt-2 inline-flex items-center gap-1.5 text-xs ${res.status === "sent" ? "text-emerald-400" : res.status === "failed" ? "text-red-400" : "text-zinc-500"}`}>
+                    {res.status === "sent" ? <CheckCircle2 className="h-3.5 w-3.5" /> : res.status === "failed" ? <XCircle className="h-3.5 w-3.5" /> : null}
+                    {res.status === "sent" ? "Test delivered" : res.status === "failed" ? res.error || "Delivery failed" : "Skipped"}
+                  </p>
+                )}
+              </div>
+              {status === null ? <Skeleton className="h-5 w-20" /> : (
+                <span className={`inline-flex shrink-0 items-center gap-1.5 text-xs ${on ? "text-emerald-400" : "text-zinc-500"}`}>
+                  <span className={`h-1.5 w-1.5 rounded-full ${on ? "bg-emerald-400" : "bg-zinc-600"}`} />
+                  {on ? "Connected" : "Not set up"}
+                </span>
+              )}
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }
 
-===== app\page.tsx =====
-"use client";
-
-import { useCallback, useEffect, useState } from "react";
-import toast from "react-hot-toast";
-import { getAlerts, getErrorMessage, type Alert } from "@/lib/api";
-import { timestamp } from "@/lib/format";
-import { useShell } from "@/components/AppShell";
-import AlertItem, { AlertItemSkeleton } from "@/components/AlertItem";
-import ErrorState from "@/components/ErrorState";
-
-export default function AlertsPage() {
-  const { refreshKey } = useShell();
-  const [alerts, setAlerts] = useState<Alert[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    try {
-      setAlerts(await getAlerts());
-      setError(null);
-    } catch (err) {
-      const message = getErrorMessage(err);
-      setError(message);
-      toast.error(message, { id: "alerts-load-error" });
-    }
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load, refreshKey]);
-
-  const retry = () => {
-    setError(null);
-    load();
-  };
-
-  if (error && alerts === null) {
-    return <ErrorState message={error} onRetry={retry} />;
-  }
-
-  const sorted = alerts
-    ? [...alerts].sort((a, b) => timestamp(b.sentAt) - timestamp(a.sentAt))
-    : [];
-
-  return (
-    <div className="space-y-5">
-      <p className="text-sm text-zinc-400">Every change detected across your monitors.</p>
-      <div className="overflow-hidden rounded-xl border border-zinc-800/80 bg-zinc-900/40">
-        {alerts === null ? (
-          <ul className="divide-y divide-zinc-800/60">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <AlertItemSkeleton key={i} />
-            ))}
-          </ul>
-        ) : sorted.length === 0 ? (
-          <div className="px-6 py-14 text-center">
-            <p className="text-sm font-medium text-zinc-200">No alerts yet</p>
-            <p className="mt-1 text-sm text-zinc-500">
-              When a monitor detects a change, the details will appear here.
-            </p>
-          </div>
-        ) : (
-          <ul className="divide-y divide-zinc-800/60">
-            {sorted.map((alert) => (
-              <AlertItem key={alert.id} alert={alert} showUrl />
-            ))}
-          </ul>
-        )}
-      </div>
-    </div>
-  );
-}
 
 ===== app\tailwind.config.ts =====
 import type { Config } from "tailwindcss";
@@ -433,6 +956,65 @@ const config: Config = {
   plugins: [],
 };
 export default config;
+
+===== components\ActivityChart.tsx =====
+"use client";
+
+import { useMemo } from "react";
+import { differenceInCalendarDays, format, startOfDay, subDays } from "date-fns";
+import { timestamp } from "@/lib/format";
+
+/** Tiny dependency-free bar chart: how many events happened on each of the last N days. */
+export default function ActivityChart({
+  dates,
+  days = 14,
+  label,
+}: {
+  dates: Array<string | null | undefined>;
+  days?: number;
+  label: string;
+}) {
+  const buckets = useMemo(() => {
+    const out = Array.from({ length: days }, (_, i) => ({ day: startOfDay(subDays(new Date(), days - 1 - i)), count: 0 }));
+    for (const raw of dates) {
+      const t = timestamp(raw);
+      if (!t) continue;
+      const idx = differenceInCalendarDays(new Date(t), out[0].day);
+      if (idx >= 0 && idx < days) out[idx].count++;
+    }
+    return out;
+  }, [dates, days]);
+
+  const max = Math.max(1, ...buckets.map((b) => b.count));
+  const total = buckets.reduce((s, b) => s + b.count, 0);
+
+  return (
+    <div>
+      <div className="flex items-baseline justify-between">
+        <p className="text-[13px] font-medium text-zinc-200">{label}</p>
+        <p className="text-xs tabular-nums text-zinc-500">{total} in {days}d</p>
+      </div>
+      <div className="mt-3 flex h-16 items-end gap-1" role="img" aria-label={`${label}: ${total} in the last ${days} days`}>
+        {buckets.map((b) => (
+          <div key={b.day.toISOString()} className="group relative flex h-full flex-1 items-end">
+            <div
+              className={`w-full rounded-[2px] transition-colors ${b.count ? "bg-indigo-500 group-hover:bg-indigo-400" : "bg-zinc-800/80"}`}
+              style={{ height: `${b.count ? Math.max(14, (b.count / max) * 100) : 6}%` }}
+            />
+            <span className="pointer-events-none absolute -top-6 left-1/2 z-10 hidden -translate-x-1/2 whitespace-nowrap rounded border border-zinc-800 bg-zinc-900 px-1.5 py-0.5 text-[10px] text-zinc-200 group-hover:block">
+              {format(b.day, "MMM d")} · {b.count}
+            </span>
+          </div>
+        ))}
+      </div>
+      <div className="mt-1.5 flex justify-between text-[10px] text-zinc-600">
+        <span>{format(buckets[0].day, "MMM d")}</span>
+        <span>Today</span>
+      </div>
+    </div>
+  );
+}
+
 
 ===== components\AddMonitorModal.tsx =====
 "use client";
@@ -481,7 +1063,7 @@ export default function AddMonitorModal({ open, onClose, onCreated }: Props) {
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
   const [intervalMins, setIntervalMins] = useState(60);
-  const [sensitivity, setSensitivity] = useState(50);
+  const [sensitivity, setSensitivity] = useState(1);
   const [errors, setErrors] = useState<{ name?: string; url?: string }>({});
   const [submitting, setSubmitting] = useState(false);
 
@@ -491,7 +1073,7 @@ export default function AddMonitorModal({ open, onClose, onCreated }: Props) {
     setName("");
     setUrl("");
     setIntervalMins(60);
-    setSensitivity(50);
+    setSensitivity(1);
     setErrors({});
     setSubmitting(false);
     const t = setTimeout(() => nameRef.current?.focus(), 30);
@@ -660,12 +1242,43 @@ export default function AddMonitorModal({ open, onClose, onCreated }: Props) {
           </div>
 
           <div>
-            <div className="mb-2.5 flex items-center justify-between">
-              <label htmlFor={sensitivityId} className="text-sm font-medium text-zinc-200">
-                Sensitivity
-              </label>
-              <span className="text-sm tabular-nums text-zinc-400">{sensitivity}%</span>
-            </div>
+            <div>
+  <div className="mb-2.5 flex items-center justify-between">
+    <label htmlFor={sensitivityId} className="text-sm font-medium text-zinc-200">
+      Alert threshold
+    </label>
+    <span className="text-sm tabular-nums text-zinc-400">
+      {sensitivity === 0 ? "Any change" : `≥ ${sensitivity}% of the page`}
+    </span>
+  </div>
+  <input
+    id={sensitivityId}
+    type="range"
+    min={0}
+    max={25}
+    step={1}
+    value={sensitivity}
+    onChange={(e) => setSensitivity(Number(e.target.value))}
+    disabled={submitting}
+    className="range w-full"
+    style={{ background: `linear-gradient(to right, #6366f1 ${(sensitivity / 25) * 100}%, #27272a ${(sensitivity / 25) * 100}%)` }}
+  />
+  <div className="mt-2.5 flex flex-wrap gap-2">
+    {[{ v: 0, l: "Hair-trigger" }, { v: 1, l: "Sensitive" }, { v: 5, l: "Balanced" }, { v: 20, l: "Major only" }].map((p) => (
+      <button
+        key={p.v}
+        type="button"
+        onClick={() => setSensitivity(p.v)}
+        className={`rounded-full border px-2.5 py-1 text-xs transition-colors ${
+          sensitivity === p.v ? "border-indigo-500/50 bg-indigo-500/10 text-indigo-200" : "border-zinc-800 text-zinc-400 hover:text-zinc-200"
+        }`}
+      >
+        {p.l}
+      </button>
+    ))}
+  </div>
+  <p className="mt-2 text-xs text-zinc-500">Ignore changes smaller than this share of the page text.</p>
+</div>
             <input
               id={sensitivityId}
               type="range"
@@ -702,76 +1315,67 @@ export default function AddMonitorModal({ open, onClose, onCreated }: Props) {
 
 
 ===== components\AlertItem.tsx =====
-import { Bell } from "lucide-react";
+import Link from "next/link";
+import { AlertTriangle, Bell } from "lucide-react";
 import type { Alert } from "@/lib/api";
-import { fullDate, timeAgo } from "@/lib/format";
+import { fullDate, shortAgo } from "@/lib/format";
 import Skeleton from "./Skeleton";
 
-export default function AlertItem({
-  alert,
-  showUrl = false,
-}: {
-  alert: Alert;
-  showUrl?: boolean;
-}) {
-  return (
-    <li className="flex gap-3 px-4 py-3.5 sm:px-5">
-      <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-zinc-800 bg-zinc-900 text-zinc-400">
-        <Bell className="h-4 w-4" />
-      </div>
+/** Compact inbox-style row: icon · monitor · summary (one line) · age. */
+export default function AlertItem({ alert, showUrl = false }: { alert: Alert; showUrl?: boolean }) {
+  const isStatus = alert.kind === "status";
+  const Icon = isStatus ? AlertTriangle : Bell;
+
+  const body = (
+    <>
+      <Icon className={`mt-0.5 h-4 w-4 shrink-0 ${isStatus ? "text-amber-400" : "text-indigo-300"}`} />
       <div className="min-w-0 flex-1">
-        <div className="flex items-baseline justify-between gap-3">
-          <p className="truncate text-sm font-medium text-zinc-100">
-            {alert.monitor?.name ?? "Deleted monitor"}
-          </p>
-          <time
-            dateTime={alert.sentAt}
-            title={fullDate(alert.sentAt)}
-            className="shrink-0 text-xs text-zinc-500"
-          >
-            {timeAgo(alert.sentAt)}
+        <div className="flex items-baseline gap-2">
+          <p className="shrink-0 max-w-[40%] truncate text-[13px] font-medium text-zinc-100">{alert.monitor?.name ?? "Deleted monitor"}</p>
+          <p className="min-w-0 flex-1 truncate text-[13px] text-zinc-400">{alert.summary}</p>
+          <time dateTime={alert.sentAt} title={fullDate(alert.sentAt)} className="shrink-0 text-xs text-zinc-500">
+            {shortAgo(alert.sentAt)}
           </time>
         </div>
-        <p className="mt-1 line-clamp-2 text-sm text-zinc-400">{alert.summary}</p>
-        {showUrl && alert.monitor?.url && (
-          <p className="mt-1 truncate text-xs text-zinc-600">{alert.monitor.url}</p>
-        )}
+        {showUrl && alert.monitor?.url && <p className="mt-0.5 truncate text-xs text-zinc-600">{alert.monitor.url}</p>}
       </div>
+    </>
+  );
+
+  const cls = "flex gap-3 px-4 py-2.5";
+  return (
+    <li className="border-b border-zinc-800/60 last:border-b-0">
+      {alert.monitor && alert.monitorId ? (
+        <Link href={`/monitors/${alert.monitorId}`} className={`${cls} transition-colors hover:bg-zinc-900/60`}>
+          {body}
+        </Link>
+      ) : (
+        <div className={cls}>{body}</div>
+      )}
     </li>
   );
 }
 
 export function AlertItemSkeleton() {
   return (
-    <li className="flex gap-3 px-4 py-3.5 sm:px-5" aria-hidden="true">
-      <Skeleton className="h-8 w-8 shrink-0 rounded-full" />
-      <div className="min-w-0 flex-1 space-y-2">
-        <div className="flex justify-between gap-3">
-          <Skeleton className="h-4 w-32" />
-          <Skeleton className="h-3 w-16" />
-        </div>
-        <Skeleton className="h-3.5 w-full max-w-md" />
-      </div>
+    <li className="flex items-center gap-3 border-b border-zinc-800/60 px-4 py-3 last:border-b-0" aria-hidden="true">
+      <Skeleton className="h-4 w-4 rounded" />
+      <Skeleton className="h-3.5 w-32" />
+      <Skeleton className="h-3.5 w-full max-w-md" />
     </li>
   );
 }
 
+
 ===== components\AppShell.tsx =====
 "use client";
 
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-  type ReactNode,
-} from "react";
-import { usePathname } from "next/navigation";
-import { Menu, Plus } from "lucide-react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { ChevronRight, Menu, Plus } from "lucide-react";
 import { btnPrimary } from "@/lib/styles";
 import AddMonitorModal from "./AddMonitorModal";
+import CommandPalette from "./CommandPalette";
 import Sidebar from "./Sidebar";
 
 interface ShellContextValue {
@@ -781,118 +1385,583 @@ interface ShellContextValue {
   refreshKey: number;
 }
 
-const ShellContext = createContext<ShellContextValue>({
-  openAddMonitor: () => {},
-  refreshKey: 0,
-});
-
+const ShellContext = createContext<ShellContextValue>({ openAddMonitor: () => {}, refreshKey: 0 });
 export const useShell = () => useContext(ShellContext);
 
 const TITLES: Record<string, string> = {
-  "/": "Dashboard",
+  "/": "Overview",
   "/monitors": "Monitors",
   "/alerts": "Alerts",
+  "/settings": "Channels",
+};
+
+const titleFor = (pathname: string) =>
+  TITLES[pathname] ?? (pathname.startsWith("/monitors/") ? "Monitors" : "Overview");
+
+/** True when the keystroke is going into a form control, so single-key shortcuts must not fire. */
+const isTyping = (t: EventTarget | null) => {
+  const el = t as HTMLElement | null;
+  return !!el && (el.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName));
 };
 
 export default function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
   const [navOpen, setNavOpen] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const gPressedAt = useRef(0);
 
   const openAddMonitor = useCallback(() => setModalOpen(true), []);
   const closeModal = useCallback(() => setModalOpen(false), []);
+  const closePalette = useCallback(() => setPaletteOpen(false), []);
+  const openPalette = useCallback(() => setPaletteOpen(true), []);
   const handleCreated = useCallback(() => setRefreshKey((k) => k + 1), []);
 
-  const ctx = useMemo(
-    () => ({ openAddMonitor, refreshKey }),
-    [openAddMonitor, refreshKey]
-  );
+  const ctx = useMemo(() => ({ openAddMonitor, refreshKey }), [openAddMonitor, refreshKey]);
 
-  // Close the mobile drawer on navigation
-  useEffect(() => {
-    setNavOpen(false);
-  }, [pathname]);
+  useEffect(() => { setNavOpen(false); }, [pathname]);
 
-  // Close the mobile drawer with Escape
   useEffect(() => {
     if (!navOpen) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setNavOpen(false);
-    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setNavOpen(false); };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [navOpen]);
 
-  const title = TITLES[pathname] ?? "Dashboard";
+  // Keyboard-first, like Linear:  ⌘K palette · C create · G then O/M/A/C to navigate
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPaletteOpen((o) => !o);
+        return;
+      }
+      if (e.metaKey || e.ctrlKey || e.altKey || isTyping(e.target) || modalOpen || paletteOpen) return;
+
+      const key = e.key.toLowerCase();
+      if (key === "c") { e.preventDefault(); setModalOpen(true); return; }
+      if (key === "g") { gPressedAt.current = Date.now(); return; }
+      if (Date.now() - gPressedAt.current < 1200) {
+        const dest: Record<string, string> = { o: "/", m: "/monitors", a: "/alerts", c: "/settings" };
+        if (dest[key]) { e.preventDefault(); gPressedAt.current = 0; router.push(dest[key]); }
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [router, modalOpen, paletteOpen]);
+
+  const sidebar = (onNavigate?: () => void) => (
+    <Sidebar onNavigate={onNavigate} onSearch={openPalette} onCreate={openAddMonitor} refreshKey={refreshKey} />
+  );
 
   return (
     <ShellContext.Provider value={ctx}>
-      <div className="min-h-screen">
-        {/* Grid background */}
-        <div
-          aria-hidden="true"
-          className="bg-grid pointer-events-none fixed inset-0 z-0 lg:left-60"
-        />
+      <div className="flex h-dvh bg-canvas text-zinc-100">
+        <aside className="hidden w-60 shrink-0 lg:block">{sidebar()}</aside>
 
-        {/* Desktop sidebar */}
-        <aside className="fixed inset-y-0 left-0 z-30 hidden w-60 border-r border-zinc-800/80 bg-zinc-950 lg:block">
-          <Sidebar />
-        </aside>
-
-        {/* Mobile drawer */}
         {navOpen && (
-          <div
-            className="fixed inset-0 z-40 lg:hidden"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Navigation"
-          >
-            <div
-              className="absolute inset-0 animate-fade-in bg-black/70"
-              onClick={() => setNavOpen(false)}
-            />
-            <aside className="absolute inset-y-0 left-0 w-64 border-r border-zinc-800 bg-zinc-950">
-              <Sidebar onNavigate={() => setNavOpen(false)} />
-            </aside>
+          <div className="fixed inset-0 z-40 lg:hidden" role="dialog" aria-modal="true" aria-label="Navigation">
+            <div className="absolute inset-0 animate-fade-in bg-black/70" onClick={() => setNavOpen(false)} />
+            <aside className="absolute inset-y-0 left-0 w-64 border-r border-zinc-800 bg-canvas">{sidebar(() => setNavOpen(false))}</aside>
           </div>
         )}
 
-        <div className="relative z-10 lg:pl-60">
-          <header className="sticky top-0 z-20 flex h-14 items-center justify-between gap-3 border-b border-zinc-800/80 bg-zinc-950/70 px-4 backdrop-blur-md sm:px-6 lg:px-8">
-            <div className="flex min-w-0 items-center gap-3">
-              <button
-                type="button"
-                onClick={() => setNavOpen(true)}
-                aria-label="Open navigation"
-                className="-ml-1.5 inline-flex h-9 w-9 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-800/70 hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500 lg:hidden"
-              >
-                <Menu className="h-5 w-5" />
+        {/* Content lives in an inset, bordered panel, the signature Linear layout */}
+        <div className="flex min-w-0 flex-1 flex-col lg:py-2 lg:pr-2">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-zinc-950 lg:rounded-lg lg:border lg:border-zinc-800">
+            <header className="flex h-11 shrink-0 items-center justify-between border-b border-zinc-800 px-4">
+              <div className="flex min-w-0 items-center gap-2 text-[13px]">
+                <button
+                  type="button"
+                  onClick={() => setNavOpen(true)}
+                  aria-label="Open navigation"
+                  className="-ml-1.5 flex h-7 w-7 items-center justify-center rounded-md text-zinc-400 hover:bg-zinc-800/70 hover:text-zinc-100 lg:hidden"
+                >
+                  <Menu className="h-4 w-4" />
+                </button>
+                <span className="hidden text-zinc-500 sm:inline">Aegis Watch</span>
+                <ChevronRight className="hidden h-3.5 w-3.5 text-zinc-700 sm:inline" />
+                <h1 className="truncate font-medium text-zinc-100">{titleFor(pathname)}</h1>
+              </div>
+              <button type="button" onClick={openAddMonitor} aria-label="Create monitor" className={btnPrimary}>
+                <Plus className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">New monitor</span>
               </button>
-              <h1 className="truncate text-sm font-semibold tracking-tight">{title}</h1>
-            </div>
+            </header>
 
-            <button
-              type="button"
-              onClick={openAddMonitor}
-              aria-label="Create monitor"
-              className={btnPrimary}
-            >
-              <Plus className="h-4 w-4" />
-              <span className="hidden sm:inline">Create monitor</span>
-            </button>
-          </header>
-
-          <main className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-            {children}
-          </main>
+            <main className="scroll-thin min-h-0 flex-1 overflow-y-auto">{children}</main>
+          </div>
         </div>
 
         <AddMonitorModal open={modalOpen} onClose={closeModal} onCreated={handleCreated} />
+        <CommandPalette open={paletteOpen} onClose={closePalette} onCreate={openAddMonitor} />
       </div>
     </ShellContext.Provider>
   );
 }
+
+
+===== components\AskAI.tsx =====
+"use client";
+
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { Loader2, Send, Sparkles } from "lucide-react";
+import { askMonitor, getErrorMessage } from "@/lib/api";
+
+const SUGGESTIONS = [
+  "What changed most recently?",
+  "Did any prices or numbers change?",
+  "Summarize everything that changed so far",
+];
+
+interface Turn { q: string; a?: string; error?: string }
+
+export default function AskAI({ monitorId, disabled }: { monitorId: string; disabled?: boolean }) {
+  const [turns, setTurns] = useState<Turn[]>([]);
+  const [input, setInput] = useState("");
+  const [busy, setBusy] = useState(false);
+  const endRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }); }, [turns]);
+
+  async function ask(question: string) {
+    const q = question.trim();
+    if (q.length < 3 || busy) return;
+    setBusy(true);
+    setInput("");
+    setTurns((t) => [...t, { q }]);
+    try {
+      const { answer } = await askMonitor(monitorId, q);
+      setTurns((t) => t.map((x, i) => (i === t.length - 1 ? { ...x, a: answer } : x)));
+    } catch (err) {
+      setTurns((t) => t.map((x, i) => (i === t.length - 1 ? { ...x, error: getErrorMessage(err) } : x)));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    ask(input);
+  }
+
+  return (
+    <div className="overflow-hidden rounded-lg border border-zinc-800 bg-zinc-900/30">
+      <div className="flex items-center gap-2 border-b border-zinc-800 px-4 py-3">
+        <Sparkles className="h-4 w-4 text-indigo-300" />
+        <h3 className="text-sm font-medium text-zinc-100">Ask this page&rsquo;s history</h3>
+        <span className="ml-auto text-xs text-zinc-600">Gemini · last 6 snapshots</span>
+      </div>
+
+      <div className="scroll-thin max-h-[420px] min-h-[220px] space-y-4 overflow-y-auto px-4 py-4">
+        {turns.length === 0 && (
+          <div className="py-4 text-center">
+            <p className="text-sm text-zinc-400">Ask anything about how this page has changed over time.</p>
+            <div className="mt-4 flex flex-wrap justify-center gap-2">
+              {SUGGESTIONS.map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  disabled={disabled || busy}
+                  onClick={() => ask(s)}
+                  className="rounded-full border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-xs text-zinc-300 transition-colors hover:border-indigo-500/40 hover:text-indigo-200 disabled:opacity-50"
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {turns.map((t, i) => (
+          <div key={i} className="space-y-2">
+            <div className="ml-auto w-fit max-w-[85%] rounded-2xl rounded-br-sm bg-indigo-500/20 px-3.5 py-2 text-sm text-indigo-100">{t.q}</div>
+            <div className="max-w-[92%] rounded-2xl rounded-bl-sm border border-zinc-800 bg-zinc-900 px-3.5 py-2.5 text-sm leading-relaxed text-zinc-200">
+              {t.error ? (
+                <span className="text-red-300">{t.error}</span>
+              ) : t.a ? (
+                t.a
+              ) : (
+                <span className="inline-flex items-center gap-2 text-zinc-500"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Reading the snapshots…</span>
+              )}
+            </div>
+          </div>
+        ))}
+        <div ref={endRef} />
+      </div>
+
+      <form onSubmit={onSubmit} className="flex items-center gap-2 border-t border-zinc-800 p-3">
+        <input
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          maxLength={300}
+          disabled={disabled || busy}
+          placeholder={disabled ? "Run a check first to create a snapshot" : "e.g. Did the price go down?"}
+          className="h-8 flex-1 rounded-md border border-zinc-800 bg-zinc-950 px-3 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-zinc-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 disabled:opacity-60"
+        />
+        <button
+          type="submit"
+          disabled={disabled || busy || input.trim().length < 3}
+          aria-label="Send question"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-indigo-500 text-white transition-colors hover:bg-indigo-400 disabled:opacity-40"
+        >
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+        </button>
+      </form>
+    </div>
+  );
+}
+
+
+===== components\CommandPalette.tsx =====
+"use client";
+
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useRouter } from "next/navigation";
+import { Activity, Bell, CornerDownLeft, Globe, LayoutDashboard, Plus, Search, Send, type LucideIcon } from "lucide-react";
+import { getMonitors, type Monitor } from "@/lib/api";
+
+interface Item { id: string; label: string; hint?: string; icon: LucideIcon; run: () => void }
+
+export default function CommandPalette({
+  open,
+  onClose,
+  onCreate,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onCreate: () => void;
+}) {
+  const router = useRouter();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [q, setQ] = useState("");
+  const [active, setActive] = useState(0);
+  const [monitors, setMonitors] = useState<Monitor[]>([]);
+
+  useEffect(() => {
+    if (!open) return;
+    setQ("");
+    setActive(0);
+    inputRef.current?.focus();
+    getMonitors().then(setMonitors).catch(() => {});
+  }, [open]);
+
+  const items = useMemo<Item[]>(() => {
+    const go = (href: string) => () => { router.push(href); onClose(); };
+    const base: Item[] = [
+      { id: "new", label: "Create monitor", hint: "Action", icon: Plus, run: () => { onClose(); onCreate(); } },
+      { id: "dash", label: "Dashboard", hint: "Go to", icon: LayoutDashboard, run: go("/") },
+      { id: "mons", label: "Monitors", hint: "Go to", icon: Activity, run: go("/monitors") },
+      { id: "alerts", label: "Alerts", hint: "Go to", icon: Bell, run: go("/alerts") },
+      { id: "channels", label: "Notification channels", hint: "Go to", icon: Send, run: go("/settings") },
+    ];
+    const mons: Item[] = monitors.map((m) => ({
+      id: `m-${m.id}`,
+      label: m.name,
+      hint: m.url.replace(/^https?:\/\//, ""),
+      icon: Globe,
+      run: go(`/monitors/${m.id}`),
+    }));
+    const needle = q.trim().toLowerCase();
+    const all = [...base, ...mons];
+    return needle ? all.filter((i) => `${i.label} ${i.hint ?? ""}`.toLowerCase().includes(needle)) : all;
+  }, [monitors, q, router, onClose, onCreate]);
+
+  if (!open) return null;
+
+  function onKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "ArrowDown") { e.preventDefault(); setActive((a) => Math.min(a + 1, items.length - 1)); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setActive((a) => Math.max(a - 1, 0)); }
+    else if (e.key === "Enter") { e.preventDefault(); items[active]?.run(); }
+    else if (e.key === "Escape") onClose();
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex animate-fade-in items-start justify-center bg-black/70 px-4 pt-[15vh] backdrop-blur-sm"
+      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div role="dialog" aria-modal="true" aria-label="Command palette"
+        className="w-full max-w-lg animate-modal-in overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950 shadow-2xl shadow-black/60">
+        <div className="flex items-center gap-3 border-b border-zinc-800 px-4">
+          <Search className="h-4 w-4 text-zinc-500" />
+          <input
+            ref={inputRef}
+            value={q}
+            onChange={(e) => { setQ(e.target.value); setActive(0); }}
+            onKeyDown={onKeyDown}
+            placeholder="Search monitors, jump to a page…"
+            className="h-11 w-full bg-transparent text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none"
+          />
+          <kbd className="rounded border border-zinc-700 px-1.5 py-0.5 text-[10px] text-zinc-500">ESC</kbd>
+        </div>
+        <ul className="scroll-thin max-h-80 overflow-y-auto p-2">
+          {items.length === 0 && <li className="px-3 py-8 text-center text-sm text-zinc-500">No results</li>}
+          {items.map((item, i) => {
+            const Icon = item.icon;
+            return (
+              <li key={item.id}>
+                <button
+                  type="button"
+                  onMouseEnter={() => setActive(i)}
+                  onClick={item.run}
+                  className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition-colors ${i === active ? "bg-indigo-500/10 text-indigo-200" : "text-zinc-300"}`}
+                >
+                  <Icon className="h-4 w-4 shrink-0 text-zinc-500" />
+                  <span className="truncate">{item.label}</span>
+                  {item.hint && <span className="ml-auto truncate text-xs text-zinc-600">{item.hint}</span>}
+                  {i === active && <CornerDownLeft className="h-3.5 w-3.5 shrink-0 text-indigo-300" />}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+    </div>
+  );
+}
+
+
+===== components\CompareView.tsx =====
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { Columns2, FileText, Flame, ImageOff, Info, Loader2, SlidersHorizontal } from "lucide-react";
+import { assetUrl, compareSnapshots, getErrorMessage, type CompareResult } from "@/lib/api";
+import { fullDate } from "@/lib/format";
+import Skeleton from "./Skeleton";
+
+type Mode = "split" | "swipe" | "heatmap" | "text";
+
+const MODES: Array<{ id: Mode; label: string; icon: typeof Columns2 }> = [
+  { id: "split", label: "Side by side", icon: Columns2 },
+  { id: "swipe", label: "Swipe", icon: SlidersHorizontal },
+  { id: "heatmap", label: "Pixel diff", icon: Flame },
+  { id: "text", label: "Text diff", icon: FileText },
+];
+
+interface Props {
+  monitorId: string;
+  /** Older snapshot id */
+  v1: string;
+  /** Newer snapshot id */
+  v2: string;
+  /** True when v1 is the snapshot immediately before v2 (the stored pixel diff only describes that pair). */
+  adjacent: boolean;
+}
+
+/* ───────── text diff: parse the API's <ins>/<del>/<span> HTML into React nodes (no innerHTML) ───────── */
+
+type Seg = { kind: "ins" | "del" | "same"; text: string };
+
+function parseDiff(html: string): Seg[] {
+  const out: Seg[] = [];
+  const re = /<(ins|del|span)>([\s\S]*?)<\/\1>/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html))) {
+    out.push({ kind: m[1] === "span" ? "same" : (m[1] as "ins" | "del"), text: m[2].replace(/&lt;/g, "<") });
+  }
+  return out;
+}
+
+const CONTEXT = 110;
+
+function TextDiff({ html }: { html: string }) {
+  const [full, setFull] = useState(false);
+  const segs = useMemo(() => parseDiff(html), [html]);
+  const changes = segs.filter((s) => s.kind !== "same");
+
+  if (changes.length === 0) {
+    return <p className="px-4 py-10 text-center text-sm text-zinc-500">No textual differences between these two snapshots.</p>;
+  }
+
+  return (
+    <div>
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-800 px-4 py-2.5 text-xs">
+        <div className="flex items-center gap-3">
+          <span className="inline-flex items-center gap-1.5 text-emerald-300"><span className="h-2 w-2 rounded-sm bg-emerald-400" /> Added</span>
+          <span className="inline-flex items-center gap-1.5 text-red-300"><span className="h-2 w-2 rounded-sm bg-red-400" /> Removed</span>
+        </div>
+        <button type="button" onClick={() => setFull((f) => !f)} className="text-zinc-400 hover:text-zinc-100">
+          {full ? "Collapse unchanged text" : "Show full text"}
+        </button>
+      </div>
+      <p className="scroll-thin max-h-[560px] overflow-y-auto whitespace-pre-wrap break-words px-4 py-4 font-mono text-[13px] leading-7 text-zinc-400">
+        {segs.map((s, i) => {
+          if (s.kind === "ins")
+            return <ins key={i} className="rounded bg-emerald-500/15 px-0.5 text-emerald-300 no-underline">{s.text}</ins>;
+          if (s.kind === "del")
+            return <del key={i} className="rounded bg-red-500/15 px-0.5 text-red-300 decoration-red-400/60">{s.text}</del>;
+          if (full || s.text.length <= CONTEXT * 2 + 40) return <span key={i}>{s.text}</span>;
+          const hidden = s.text.length - CONTEXT * 2;
+          const head = s.text.slice(0, CONTEXT);
+          const tail = s.text.slice(-CONTEXT);
+          const chip = (
+            <span className="mx-1 rounded-full border border-zinc-800 bg-zinc-900 px-2 py-0.5 font-sans text-[10px] text-zinc-500">
+              {hidden.toLocaleString()} unchanged characters
+            </span>
+          );
+          if (i === 0) return <span key={i}>{chip}{tail}</span>;
+          if (i === segs.length - 1) return <span key={i}>{head}{chip}</span>;
+          return <span key={i}>{head}{chip}{tail}</span>;
+        })}
+      </p>
+    </div>
+  );
+}
+
+/* ───────── image panes ───────── */
+
+function Shot({ src, alt }: { src: string | null; alt: string }) {
+  if (!src) {
+    return (
+      <div className="flex h-48 flex-col items-center justify-center gap-2 text-zinc-600">
+        <ImageOff className="h-5 w-5" />
+        <span className="text-xs">No screenshot stored</span>
+      </div>
+    );
+  }
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img src={src} alt={alt} loading="lazy" className="block w-full" />;
+}
+
+function Pane({ label, date, tone, src }: { label: string; date: string; tone: "red" | "emerald"; src: string | null }) {
+  const chip = tone === "red" ? "bg-red-500/15 text-red-300" : "bg-emerald-500/15 text-emerald-300";
+  return (
+    <div className="min-w-0 bg-zinc-950">
+      <div className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-zinc-800 bg-zinc-950/90 px-3 py-2 backdrop-blur">
+        <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${chip}`}>{label}</span>
+        <span className="truncate text-[11px] text-zinc-500">{date}</span>
+      </div>
+      <Shot src={src} alt={`${label} screenshot`} />
+    </div>
+  );
+}
+
+export default function CompareView({ monitorId, v1, v2, adjacent }: Props) {
+  const [data, setData] = useState<CompareResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [mode, setMode] = useState<Mode>("split");
+  const [pos, setPos] = useState(50);
+
+  useEffect(() => {
+    let cancelled = false;
+    setData(null);
+    setError(null);
+    compareSnapshots(monitorId, v1, v2)
+      .then((d) => { if (!cancelled) setData(d); })
+      .catch((e) => { if (!cancelled) setError(getErrorMessage(e)); });
+    return () => { cancelled = true; };
+  }, [monitorId, v1, v2]);
+
+  if (error) {
+    return <div className="rounded-lg border border-red-500/20 bg-red-500/5 px-5 py-8 text-center text-sm text-red-300">{error}</div>;
+  }
+
+  if (!data) {
+    return (
+      <div className="space-y-3 rounded-lg border border-zinc-800 bg-zinc-900/30 p-4" aria-busy="true">
+        <div className="flex items-center gap-2 text-xs text-zinc-500"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading comparison…</div>
+        <Skeleton className="h-10 w-full" />
+        <Skeleton className="h-72 w-full" />
+      </div>
+    );
+  }
+
+  const before = assetUrl(data.v1.image);
+  const after = assetUrl(data.v2.image);
+  const heat = assetUrl(data.visualDiff);
+  const pct = data.diff.changeRatio * 100;
+
+  return (
+    <div className="overflow-hidden rounded-lg border border-zinc-800 bg-zinc-900/30">
+      {/* summary bar */}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-800 px-4 py-3">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-zinc-100">
+            {pct.toFixed(1)}% of the page text changed
+          </p>
+          <p className="mt-0.5 truncate text-xs text-zinc-500">{data.diff.summary} · {fullDate(data.v1.createdAt)} → {fullDate(data.v2.createdAt)}</p>
+        </div>
+        <div className="h-1.5 w-28 overflow-hidden rounded-full bg-zinc-800" aria-hidden="true">
+          <div className="h-full rounded-full bg-indigo-500" style={{ width: `${Math.min(100, Math.max(3, pct))}%` }} />
+        </div>
+      </div>
+
+      {/* mode switcher */}
+      <div role="tablist" aria-label="Comparison mode" className="flex gap-1 overflow-x-auto border-b border-zinc-800 p-2">
+        {MODES.map(({ id, label, icon: Icon }) => (
+          <button
+            key={id}
+            role="tab"
+            aria-selected={mode === id}
+            type="button"
+            onClick={() => setMode(id)}
+            className={`inline-flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+              mode === id ? "bg-zinc-800 text-zinc-100" : "text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200"
+            }`}
+          >
+            <Icon className="h-3.5 w-3.5" /> {label}
+          </button>
+        ))}
+      </div>
+
+      {mode === "split" && (
+        <div className="scroll-thin grid max-h-[640px] grid-cols-2 gap-px overflow-y-auto bg-zinc-800">
+          <Pane label="Before" date={fullDate(data.v1.createdAt)} tone="red" src={before} />
+          <Pane label="After" date={fullDate(data.v2.createdAt)} tone="emerald" src={after} />
+        </div>
+      )}
+
+      {mode === "swipe" && (
+        <div>
+          <div className="scroll-thin max-h-[600px] overflow-y-auto bg-zinc-950">
+            <div className="relative">
+              <Shot src={after} alt="After screenshot" />
+              <div className="absolute inset-x-0 top-0" style={{ clipPath: `inset(0 ${100 - pos}% 0 0)` }}>
+                <Shot src={before} alt="Before screenshot" />
+              </div>
+              <div className="pointer-events-none absolute inset-y-0 w-0.5 bg-indigo-400 shadow-[0_0_12px_rgba(129,140,248,0.9)]" style={{ left: `${pos}%` }} />
+              <span className="pointer-events-none absolute left-2 top-2 rounded bg-red-500/80 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-white">Before</span>
+              <span className="pointer-events-none absolute right-2 top-2 rounded bg-emerald-500/80 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-white">After</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 border-t border-zinc-800 px-4 py-3">
+            <span className="text-xs text-zinc-500">Before</span>
+            <input
+              type="range" min={0} max={100} value={pos}
+              onChange={(e) => setPos(Number(e.target.value))}
+              aria-label="Swipe between before and after"
+              className="range flex-1"
+              style={{ background: `linear-gradient(to right, #6366f1 ${pos}%, #27272a ${pos}%)` }}
+            />
+            <span className="text-xs text-zinc-500">After</span>
+          </div>
+        </div>
+      )}
+
+      {mode === "heatmap" && (
+        <div>
+          {!adjacent && (
+            <div className="flex items-start gap-2 border-b border-amber-500/20 bg-amber-500/5 px-4 py-2.5 text-xs text-amber-300">
+              <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              The stored pixel diff compares the newer snapshot with the one right before it, not with the older snapshot you picked.
+            </div>
+          )}
+          <div className="scroll-thin max-h-[640px] overflow-y-auto bg-zinc-100">
+            <Shot src={heat} alt="Pixel difference heatmap" />
+          </div>
+          <p className="border-t border-zinc-800 px-4 py-2.5 text-xs text-zinc-500">Red marks every pixel that differs between the two screenshots.</p>
+        </div>
+      )}
+
+      {mode === "text" && <TextDiff html={data.diff.html} />}
+    </div>
+  );
+}
+
 
 ===== components\ErrorState.tsx =====
 import { AlertTriangle, RefreshCw } from "lucide-react";
@@ -920,54 +1989,199 @@ export default function ErrorState({
   );
 }
 
-===== components\MonitorCard.tsx =====
+===== components\LiveProvider.tsx =====
 "use client";
 
-import { useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
-import { ArrowUpRight, Loader2, RefreshCw, Trash2 } from "lucide-react";
-import { checkMonitor, deleteMonitor, getErrorMessage, type Monitor } from "@/lib/api";
-import { formatInterval, fullDate, timeAgo } from "@/lib/format";
-import { btnDanger, btnDangerActive, btnSecondary } from "@/lib/styles";
-import Skeleton from "./Skeleton";
-import StatusBadge from "./StatusBadge";
+import { ArrowRight, Sparkles } from "lucide-react";
+import { API_BASE, API_KEY } from "@/lib/api";
 
-export default function MonitorCard({
+export interface ChangeEvent {
+  monitorId: string;
+  name: string;
+  url: string;
+  summary: string;
+  snapshotId: string;
+  prevSnapshotId: string;
+  changePercent: number;
+  at: number;
+}
+
+interface LiveValue {
+  connected: boolean;
+  /** Monitor ids being checked right now. */
+  scanning: ReadonlySet<string>;
+  /** Increments after every finished check; pages refetch when it changes. */
+  tick: number;
+  lastChange: ChangeEvent | null;
+}
+
+const LiveContext = createContext<LiveValue>({ connected: false, scanning: new Set(), tick: 0, lastChange: null });
+export const useLive = () => useContext(LiveContext);
+
+/**
+ * Real-time updates over Server-Sent Events. EventSource cannot send the x-api-key
+ * header, so this reads the stream with fetch() and parses the frames itself.
+ */
+export function LiveProvider({ children }: { children: ReactNode }) {
+  const router = useRouter();
+  const [connected, setConnected] = useState(false);
+  const [scanning, setScanning] = useState<ReadonlySet<string>>(new Set());
+  const [tick, setTick] = useState(0);
+  const [lastChange, setLastChange] = useState<ChangeEvent | null>(null);
+
+  useEffect(() => {
+    const ctrl = new AbortController();
+    let retry: ReturnType<typeof setTimeout> | undefined;
+
+    const setScan = (id: string, on: boolean) =>
+      setScanning((prev) => {
+        const next = new Set(prev);
+        if (on) next.add(id); else next.delete(id);
+        return next;
+      });
+
+    function handle(event: string, data: any) {
+      if (event === "check:started") setScan(data.monitorId, true);
+      if (event === "check:finished") { setScan(data.monitorId, false); setTick((t) => t + 1); }
+      if (event === "change:detected") {
+        setLastChange({ ...data, at: Date.now() });
+        setTick((t) => t + 1);
+        toast.custom(
+          (t) => (
+            <div className={`${t.visible ? "animate-slide-up" : "opacity-0"} pointer-events-auto w-80 rounded-lg border border-zinc-800 bg-zinc-900 p-4 shadow-2xl shadow-indigo-500/10`}>
+              <div className="flex items-center gap-2 text-xs font-medium text-indigo-300">
+                <Sparkles className="h-3.5 w-3.5" /> Change detected
+              </div>
+              <p className="mt-1.5 truncate text-sm font-medium text-zinc-100">{data.name}</p>
+              <p className="mt-1 line-clamp-2 text-sm text-zinc-400">{data.summary}</p>
+              <button
+                type="button"
+                onClick={() => { toast.dismiss(t.id); router.push(`/monitors/${data.monitorId}?compare=${data.prevSnapshotId}:${data.snapshotId}`); }}
+                className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-indigo-300 hover:text-indigo-200"
+              >
+                View visual diff <ArrowRight className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ),
+          { duration: 9000, id: `change-${data.snapshotId}` }
+        );
+      }
+    }
+
+    async function connect() {
+      try {
+        const res = await fetch(`${API_BASE}/events`, {
+          headers: { "x-api-key": API_KEY, Accept: "text/event-stream" },
+          signal: ctrl.signal,
+          cache: "no-store",
+        });
+        if (!res.ok || !res.body) throw new Error(`stream failed (${res.status})`);
+        setConnected(true);
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = "";
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+          let i: number;
+          while ((i = buf.indexOf("\n\n")) !== -1) {
+            const frame = buf.slice(0, i);
+            buf = buf.slice(i + 2);
+            let event = "message";
+            let payload = "";
+            for (const line of frame.split("\n")) {
+              if (line.startsWith("event:")) event = line.slice(6).trim();
+              else if (line.startsWith("data:")) payload += line.slice(5).trim();
+            }
+            if (payload) {
+              try { handle(event, JSON.parse(payload)); } catch { /* ignore malformed frame */ }
+            }
+          }
+        }
+      } catch {
+        /* network drop or abort: fall through to reconnect */
+      }
+      setConnected(false);
+      if (!ctrl.signal.aborted) retry = setTimeout(connect, 3000);
+    }
+
+    connect();
+    return () => { ctrl.abort(); clearTimeout(retry); };
+  }, [router]);
+
+  const value = useMemo(() => ({ connected, scanning, tick, lastChange }), [connected, scanning, tick, lastChange]);
+  return <LiveContext.Provider value={value}>{children}</LiveContext.Provider>;
+}
+
+
+===== components\MonitorRow.tsx =====
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
+import toast from "react-hot-toast";
+import { Clock, Loader2, RefreshCw, Trash2 } from "lucide-react";
+import { checkMonitor, deleteMonitor, getErrorMessage, type Monitor } from "@/lib/api";
+import { fullDate, shortAgo, shortInterval } from "@/lib/format";
+import { useLive } from "./LiveProvider";
+import Skeleton from "./Skeleton";
+import { StatusIcon, normalizeStatus } from "./StatusBadge";
+
+/** One dense, Linear-issue-style row. The whole row is a link; actions sit above it and appear on hover. */
+export default function MonitorRow({
   monitor,
   onChanged,
+  active = false,
 }: {
   monitor: Monitor;
   onChanged: () => void;
+  /** Highlighted by j/k keyboard navigation. */
+  active?: boolean;
 }) {
-  const [checking, setChecking] = useState(false);
+  const { scanning, tick } = useLive();
+  const [queued, setQueued] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const tickAtQueue = useRef(0);
 
-  // Second click on "Delete" must happen within 3 seconds to confirm.
+  const isScanning = scanning.has(monitor.id);
+  const checking = queued || isScanning;
+  const host = monitor.url.replace(/^https?:\/\//, "").replace(/\/$/, "");
+
   useEffect(() => {
     if (!confirming) return;
     const t = setTimeout(() => setConfirming(false), 3000);
     return () => clearTimeout(t);
   }, [confirming]);
 
+  // A queued check is done when the live stream reports a finished check (45s fallback)
+  useEffect(() => {
+    if (queued && tick !== tickAtQueue.current && !isScanning) setQueued(false);
+  }, [tick, queued, isScanning]);
+  useEffect(() => {
+    if (!queued) return;
+    const t = setTimeout(() => setQueued(false), 45_000);
+    return () => clearTimeout(t);
+  }, [queued]);
+
   async function handleCheck() {
-    setChecking(true);
     try {
       await checkMonitor(monitor.id);
-      toast.success(`Checked ${monitor.name}`);
-      onChanged();
+      tickAtQueue.current = tick;
+      setQueued(true);
+      toast.success(`Check queued for ${monitor.name}`);
     } catch (err) {
       toast.error(getErrorMessage(err));
-    } finally {
-      setChecking(false);
     }
   }
 
   async function handleDelete() {
-    if (!confirming) {
-      setConfirming(true);
-      return;
-    }
+    if (!confirming) { setConfirming(true); return; }
     setDeleting(true);
     try {
       await deleteMonitor(monitor.id);
@@ -980,158 +2194,191 @@ export default function MonitorCard({
     }
   }
 
-  const busy = checking || deleting;
+  const actionBtn =
+    "relative z-10 flex h-6 w-6 items-center justify-center rounded text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-100 disabled:opacity-50";
 
   return (
-    <article className="flex flex-col rounded-xl border border-zinc-800/80 bg-gradient-to-b from-zinc-900/70 to-zinc-900/30 transition-colors hover:border-zinc-700">
-      <div className="flex items-start justify-between gap-3 p-4 pb-3">
-        <div className="min-w-0">
-          <h3 className="truncate text-sm font-medium text-zinc-100">{monitor.name}</h3>
-          <a
-            href={monitor.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            title={monitor.url}
-            className="mt-1 inline-flex max-w-full items-center gap-1 text-xs text-zinc-500 transition-colors hover:text-zinc-300"
-          >
-            <span className="truncate">{monitor.url.replace(/^https?:\/\//, "")}</span>
-            <ArrowUpRight className="h-3 w-3 shrink-0" />
-          </a>
-        </div>
-        <StatusBadge status={monitor.status} />
+    <div
+      id={`row-${monitor.id}`}
+      className={`group relative flex h-11 items-center gap-3 border-b border-zinc-800/60 px-4 last:border-b-0 transition-colors hover:bg-zinc-900/60 ${active ? "bg-zinc-900/80" : ""}`}
+    >
+      {active && <span aria-hidden="true" className="absolute inset-y-0 left-0 w-0.5 bg-indigo-500" />}
+      <Link href={`/monitors/${monitor.id}`} aria-label={`Open ${monitor.name}`} className="absolute inset-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-400/50" />
+
+      <StatusIcon status={isScanning ? "SCANNING" : normalizeStatus(monitor.status)} />
+      <span className="min-w-0 max-w-[40%] truncate text-[13px] font-medium text-zinc-100">{monitor.name}</span>
+      <span className="hidden min-w-0 flex-1 truncate text-[13px] text-zinc-500 sm:block">{host}</span>
+      <span className="flex-1 sm:hidden" />
+
+      {/* hover actions */}
+      <div className={`flex items-center gap-0.5 transition-opacity ${active || confirming ? "opacity-100" : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"}`}>
+        <button type="button" onClick={handleCheck} disabled={checking} aria-label={`Check ${monitor.name} now`} title="Check now" className={actionBtn}>
+          <RefreshCw className={`h-3.5 w-3.5 ${checking ? "animate-spin" : ""}`} />
+        </button>
+        <button
+          type="button"
+          onClick={handleDelete}
+          disabled={deleting}
+          aria-label={confirming ? `Confirm delete ${monitor.name}` : `Delete ${monitor.name}`}
+          title={confirming ? "Click again to confirm" : "Delete"}
+          className={`${actionBtn} ${confirming ? "w-auto bg-red-500/10 px-2 text-xs text-red-300 hover:bg-red-500/20 hover:text-red-200" : "hover:text-red-300"}`}
+        >
+          {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : confirming ? "Confirm?" : <Trash2 className="h-3.5 w-3.5" />}
+        </button>
       </div>
 
-      <dl className="grid grid-cols-2 gap-3 px-4 pb-4 text-xs">
-        <div>
-          <dt className="text-zinc-500">Last checked</dt>
-          <dd className="mt-0.5 text-zinc-300" title={fullDate(monitor.lastCheckedAt)}>
-            {timeAgo(monitor.lastCheckedAt)}
-          </dd>
-        </div>
-        <div>
-          <dt className="text-zinc-500">Last changed</dt>
-          <dd className="mt-0.5 text-zinc-300" title={fullDate(monitor.lastChangedAt)}>
-            {timeAgo(monitor.lastChangedAt, "No changes yet")}
-          </dd>
-        </div>
-      </dl>
-
-      <div className="mt-auto flex items-center justify-between gap-2 border-t border-zinc-800/80 px-4 py-2.5">
-        <p className="truncate text-xs text-zinc-500">
-          Checks {formatInterval(monitor.intervalMins)}
-        </p>
-        <div className="flex shrink-0 items-center gap-1.5">
-          <button
-            type="button"
-            onClick={handleCheck}
-            disabled={busy}
-            className={btnSecondary}
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${checking ? "animate-spin" : ""}`} />
-            {checking ? "Checking" : "Check now"}
-          </button>
-          <button
-            type="button"
-            onClick={handleDelete}
-            disabled={busy}
-            aria-label={confirming ? `Confirm delete ${monitor.name}` : `Delete ${monitor.name}`}
-            className={confirming ? btnDangerActive : btnDanger}
-          >
-            {deleting ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Trash2 className="h-3.5 w-3.5" />
-            )}
-            {deleting ? "Deleting" : confirming ? "Confirm" : "Delete"}
-          </button>
-        </div>
-      </div>
-    </article>
+      <span className="hidden w-12 shrink-0 items-center gap-1 text-xs text-zinc-500 md:inline-flex" title={`Checks every ${shortInterval(monitor.intervalMins)}`}>
+        <Clock className="h-3 w-3" /> {shortInterval(monitor.intervalMins)}
+      </span>
+      <span className="hidden w-16 shrink-0 text-right text-xs text-zinc-500 md:block" title={`Last changed: ${fullDate(monitor.lastChangedAt) || "never"}`}>
+        {isScanning ? <span className="text-indigo-300">Scanning</span> : shortAgo(monitor.lastChangedAt)}
+      </span>
+      <span className="w-10 shrink-0 text-right text-xs text-zinc-600" title={`Last checked: ${fullDate(monitor.lastCheckedAt) || "never"}`}>
+        {shortAgo(monitor.lastCheckedAt)}
+      </span>
+    </div>
   );
 }
 
-export function MonitorCardSkeleton() {
+export function MonitorRowSkeleton() {
   return (
-    <div
-      aria-hidden="true"
-      className="flex flex-col rounded-xl border border-zinc-800/80 bg-zinc-900/40"
-    >
-      <div className="flex items-start justify-between gap-3 p-4 pb-3">
-        <div className="space-y-2">
-          <Skeleton className="h-4 w-36" />
-          <Skeleton className="h-3 w-48 max-w-full" />
+    <div aria-hidden="true" className="flex h-11 items-center gap-3 border-b border-zinc-800/60 px-4 last:border-b-0">
+      <Skeleton className="h-3.5 w-3.5 rounded-full" />
+      <Skeleton className="h-3.5 w-40" />
+      <Skeleton className="hidden h-3.5 w-56 sm:block" />
+      <div className="flex-1" />
+      <Skeleton className="h-3.5 w-10" />
+    </div>
+  );
+}
+
+
+===== components\Sidebar.tsx =====
+"use client";
+
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { Activity, Bell, ChevronDown, LayoutDashboard, Plus, Search, Send } from "lucide-react";
+import { getMonitors, type Monitor } from "@/lib/api";
+import { useLive } from "./LiveProvider";
+import { StatusIcon, normalizeStatus } from "./StatusBadge";
+
+interface SidebarProps {
+  onNavigate?: () => void;
+  onSearch: () => void;
+  onCreate: () => void;
+  /** Bumps when a monitor is created, so the list below refetches. */
+  refreshKey: number;
+}
+
+const NAV = [
+  { name: "Overview", href: "/", icon: LayoutDashboard },
+  { name: "Alerts", href: "/alerts", icon: Bell },
+];
+const WORKSPACE = [
+  { name: "Monitors", href: "/monitors", icon: Activity },
+  { name: "Channels", href: "/settings", icon: Send },
+];
+
+const itemCls = (active: boolean) =>
+  `flex h-7 items-center gap-2 rounded-md px-2 text-[13px] transition-colors ${
+    active ? "bg-zinc-800/80 text-zinc-100" : "text-zinc-400 hover:bg-zinc-800/40 hover:text-zinc-200"
+  }`;
+
+export default function Sidebar({ onNavigate, onSearch, onCreate, refreshKey }: SidebarProps) {
+  const pathname = usePathname();
+  const { connected, scanning, tick } = useLive();
+  const [monitors, setMonitors] = useState<Monitor[]>([]);
+  const [open, setOpen] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    getMonitors().then((m) => { if (!cancelled) setMonitors(m); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [refreshKey, tick]);
+
+  const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname === href);
+  const sorted = [...monitors].sort((a, b) => a.name.localeCompare(b.name));
+
+  return (
+    <div className="flex h-full w-full flex-col">
+      {/* workspace header */}
+      <div className="flex h-12 shrink-0 items-center justify-between px-3">
+        <Link href="/" onClick={onNavigate} className="flex min-w-0 items-center gap-2 rounded-md px-1.5 py-1 hover:bg-zinc-800/50">
+          <span className="flex h-5 w-5 items-center justify-center rounded-[5px] bg-indigo-500 text-[11px] font-semibold text-white">A</span>
+          <span className="truncate text-[13px] font-medium text-zinc-100">Aegis Watch</span>
+          <ChevronDown className="h-3.5 w-3.5 text-zinc-600" />
+        </Link>
+        <div className="flex items-center">
+          <button type="button" onClick={onSearch} aria-label="Search (⌘K)" className="flex h-7 w-7 items-center justify-center rounded-md text-zinc-500 hover:bg-zinc-800/60 hover:text-zinc-200">
+            <Search className="h-4 w-4" />
+          </button>
+          <button type="button" onClick={onCreate} aria-label="Create monitor (C)" className="flex h-7 w-7 items-center justify-center rounded-md text-zinc-500 hover:bg-zinc-800/60 hover:text-zinc-200">
+            <Plus className="h-4 w-4" />
+          </button>
         </div>
-        <Skeleton className="h-6 w-16 rounded-full" />
       </div>
-      <div className="grid grid-cols-2 gap-3 px-4 pb-4">
-        <div className="space-y-1.5">
-          <Skeleton className="h-3 w-16" />
-          <Skeleton className="h-3.5 w-20" />
+
+      <nav className="scroll-thin min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+        <div className="space-y-px">
+          {NAV.map(({ name, href, icon: Icon }) => (
+            <Link key={name} href={href} onClick={onNavigate} className={itemCls(isActive(href))}>
+              <Icon className="h-4 w-4" /> {name}
+            </Link>
+          ))}
         </div>
-        <div className="space-y-1.5">
-          <Skeleton className="h-3 w-16" />
-          <Skeleton className="h-3.5 w-20" />
+
+        <p className="mb-1 mt-5 px-2 text-xs font-medium text-zinc-600">Workspace</p>
+        <div className="space-y-px">
+          {WORKSPACE.map(({ name, href, icon: Icon }) => (
+            <Link key={name} href={href} onClick={onNavigate} className={itemCls(isActive(href))}>
+              <Icon className="h-4 w-4" /> {name}
+            </Link>
+          ))}
         </div>
-      </div>
-      <div className="flex items-center justify-between border-t border-zinc-800/80 px-4 py-2.5">
-        <Skeleton className="h-3 w-24" />
-        <div className="flex gap-1.5">
-          <Skeleton className="h-8 w-24" />
-          <Skeleton className="h-8 w-20" />
-        </div>
+
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          className="group mb-1 mt-5 flex w-full items-center gap-1 px-2 text-xs font-medium text-zinc-600 hover:text-zinc-400"
+          aria-expanded={open}
+        >
+          Your monitors
+          <ChevronDown className={`h-3 w-3 opacity-0 transition-all group-hover:opacity-100 ${open ? "" : "-rotate-90"}`} />
+        </button>
+        {open && (
+          <div className="space-y-px">
+            {sorted.length === 0 && <p className="px-2 py-1 text-xs text-zinc-600">No monitors yet</p>}
+            {sorted.slice(0, 14).map((m) => {
+              const href = `/monitors/${m.id}`;
+              return (
+                <Link key={m.id} href={href} onClick={onNavigate} className={itemCls(pathname === href)}>
+                  <StatusIcon status={scanning.has(m.id) ? "SCANNING" : normalizeStatus(m.status)} size={13} />
+                  <span className="truncate">{m.name}</span>
+                </Link>
+              );
+            })}
+            {sorted.length > 14 && (
+              <Link href="/monitors" onClick={onNavigate} className="block px-2 py-1 text-xs text-zinc-600 hover:text-zinc-400">
+                +{sorted.length - 14} more
+              </Link>
+            )}
+          </div>
+        )}
+      </nav>
+
+      <div className="flex shrink-0 items-center justify-between border-t border-zinc-800/70 px-4 py-2.5 text-xs">
+        <span className="inline-flex items-center gap-1.5 text-zinc-500">
+          <span className={`h-1.5 w-1.5 rounded-full ${connected ? "bg-emerald-400" : "bg-zinc-600"}`} />
+          {connected ? "Live" : "Reconnecting"}
+        </span>
+        <span className="text-zinc-600"><span className="kbd">⌘</span> <span className="kbd">K</span></span>
       </div>
     </div>
   );
 }
 
-===== components\Sidebar.tsx =====
-"use client";
-import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { Activity, Bell, LayoutDashboard } from "lucide-react";
-
-// 1. Tell TypeScript to expect the prop
-interface SidebarProps {
-  onNavigate?: () => void;
-}
-
-// 2. Accept the prop
-export default function Sidebar({ onNavigate }: SidebarProps) {
-  const pathname = usePathname();
-
-  const links = [
-    { name: "Dashboard", href: "/", icon: LayoutDashboard },
-    { name: "Monitors", href: "/monitors", icon: Activity },
-    { name: "Alerts", href: "/alerts", icon: Bell },
-  ];
-
-  return (
-    <aside className="w-64 border-r border-zinc-800 bg-zinc-900/50 flex flex-col h-full shrink-0">
-      <div className="h-16 flex items-center px-6 border-b border-zinc-800 gap-3">
-        <div className="w-8 h-8 bg-indigo-500 rounded-lg flex items-center justify-center font-bold text-white">A</div>
-        <span className="font-bold text-lg tracking-tight text-white">Aegis Watch</span>
-      </div>
-      <nav className="flex-1 p-4 space-y-2">
-        {links.map((link) => {
-          const Icon = link.icon;
-          const isActive = pathname === link.href;
-          return (
-            <Link
-              key={link.name}
-              href={link.href}
-              onClick={onNavigate} // 3. Call the prop when a link is clicked
-              className={`flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${
-                isActive ? "bg-indigo-500/10 text-indigo-400" : "text-zinc-400 hover:bg-zinc-800 hover:text-white"
-              }`}
-            >
-              <Icon size={18} /> {link.name}
-            </Link>
-          );
-        })}
-      </nav>
-    </aside>
-  );
-}
 
 ===== components\Skeleton.tsx =====
 export default function Skeleton({ className = "" }: { className?: string }) {
@@ -1143,162 +2390,283 @@ export default function Skeleton({ className = "" }: { className?: string }) {
   );
 }
 
-===== components\StatusBadge.tsx =====
-const STYLES = {
-  OK: {
-    label: "OK",
-    dot: "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]",
-    text: "text-emerald-400",
-  },
-  ERROR: {
-    label: "Error",
-    dot: "bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)]",
-    text: "text-red-400",
-  },
-  PENDING: {
-    label: "Pending",
-    dot: "bg-amber-500",
-    text: "text-amber-400",
-  },
-} as const;
+===== components\SnapshotTimeline.tsx =====
+"use client";
 
-export default function StatusBadge({ status }: { status: string }) {
-  const normalized = (status ?? "").toUpperCase();
-  const key = normalized === "OK" ? "OK" : normalized === "ERROR" ? "ERROR" : "PENDING";
-  const s = STYLES[key];
+import { GitCompareArrows, Image as ImageIcon } from "lucide-react";
+import type { Snapshot } from "@/lib/api";
+import { fullDate, shortAgo } from "@/lib/format";
+
+interface Props {
+  /** Newest first, exactly as the API returns them. */
+  snapshots: Snapshot[];
+  selectedId: string | null;
+  /** Snapshots currently shown in the Compare tab. */
+  pair: { v1: string; v2: string } | null;
+  picked: string[];
+  onSelect: (id: string) => void;
+  onComparePrev: (id: string) => void;
+  onTogglePick: (id: string) => void;
+  onCompareSelected: () => void;
+}
+
+const mini = "inline-flex h-6 items-center gap-1 rounded px-1.5 text-[11px] text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-100";
+
+export default function SnapshotTimeline({ snapshots, selectedId, pair, picked, onSelect, onComparePrev, onTogglePick, onCompareSelected }: Props) {
+  const total = snapshots.length;
 
   return (
-    <span
-      className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border border-zinc-800 bg-zinc-900/80 px-2.5 py-1 text-xs font-medium ${s.text}`}
-    >
-      <span className={`h-1.5 w-1.5 rounded-full ${s.dot}`} aria-hidden="true" />
-      {s.label}
+    <div>
+      <div className="flex items-center justify-between">
+        <h2 className="text-xs font-medium text-zinc-500">Snapshots</h2>
+        <span className="text-xs tabular-nums text-zinc-600">{total}</span>
+      </div>
+
+      {picked.length === 2 && (
+        <button
+          type="button"
+          onClick={onCompareSelected}
+          className="mt-2 flex h-7 w-full items-center justify-center gap-1.5 rounded-md bg-indigo-500 text-[13px] font-medium text-white transition-colors hover:bg-indigo-400"
+        >
+          <GitCompareArrows className="h-3.5 w-3.5" /> Compare selected
+        </button>
+      )}
+
+      <ol className="scroll-thin -mx-1 mt-2 max-h-[480px] overflow-y-auto px-1">
+        {snapshots.map((s, idx) => {
+          const older = snapshots[idx + 1];
+          const isBaseline = idx === total - 1;
+          const inPair = pair && (pair.v1 === s.id || pair.v2 === s.id);
+          const isPicked = picked.includes(s.id);
+          const isSelected = selectedId === s.id;
+
+          return (
+            <li key={s.id} className="relative pl-5">
+              {idx < total - 1 && <span className="absolute bottom-0 left-[5px] top-[18px] w-px bg-zinc-800" aria-hidden="true" />}
+              <span
+                aria-hidden="true"
+                className={`absolute left-0 top-[11px] h-[11px] w-[11px] rounded-full border-[1.5px] ${
+                  idx === 0 ? "border-indigo-400 bg-indigo-500" : inPair ? "border-indigo-400 bg-zinc-950" : "border-zinc-600 bg-zinc-950"
+                }`}
+              />
+              <div className={`group mb-0.5 rounded-md px-2 py-1.5 transition-colors ${isSelected ? "bg-zinc-800/70" : "hover:bg-zinc-900"}`}>
+                <button type="button" onClick={() => onSelect(s.id)} className="flex w-full items-center justify-between gap-2 text-left">
+                  <span className="flex items-center gap-1.5 text-[13px] font-medium text-zinc-100">
+                    v{total - idx}
+                    {idx === 0 && <span className="rounded bg-indigo-500/15 px-1 text-[10px] font-medium text-indigo-300">Latest</span>}
+                    {isBaseline && <span className="rounded bg-zinc-800 px-1 text-[10px] font-medium text-zinc-400">Baseline</span>}
+                  </span>
+                  <span className="text-xs text-zinc-500" title={fullDate(s.createdAt)}>{shortAgo(s.createdAt)}</span>
+                </button>
+
+                <div className="mt-1 hidden items-center gap-0.5 group-hover:flex group-focus-within:flex">
+                  <button type="button" onClick={() => onSelect(s.id)} className={mini}><ImageIcon className="h-3 w-3" /> View</button>
+                  {older && (
+                    <button type="button" onClick={() => onComparePrev(s.id)} className={mini}>
+                      <GitCompareArrows className="h-3 w-3" /> vs v{total - idx - 1}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => onTogglePick(s.id)}
+                    aria-pressed={isPicked}
+                    className={`${mini} ml-auto ${isPicked ? "!bg-indigo-500/15 !text-indigo-200" : ""}`}
+                  >
+                    {isPicked ? "Selected" : "Select"}
+                  </button>
+                </div>
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+    </div>
+  );
+}
+
+
+===== components\StatusBadge.tsx =====
+export type StatusKind = "OK" | "ERROR" | "BLOCKED" | "PENDING" | "SCANNING";
+
+export function normalizeStatus(status?: string | null): Exclude<StatusKind, "SCANNING"> {
+  const n = (status ?? "").toUpperCase();
+  return n === "OK" || n === "ERROR" || n === "BLOCKED" ? n : "PENDING";
+}
+
+export const STATUS_LABEL: Record<StatusKind, string> = {
+  OK: "Healthy",
+  ERROR: "Error",
+  BLOCKED: "Blocked",
+  PENDING: "Pending",
+  SCANNING: "Scanning",
+};
+
+/** Linear-style status glyph: a small circle whose fill encodes the state. */
+export function StatusIcon({ status, size = 14, className = "" }: { status: StatusKind; size?: number; className?: string }) {
+  const common = { width: size, height: size, viewBox: "0 0 14 14", fill: "none", "aria-hidden": true, className: `shrink-0 ${className}` } as const;
+  const dark = "#101113";
+
+  switch (status) {
+    case "OK":
+      return (
+        <svg {...common}>
+          <circle cx="7" cy="7" r="6" fill="#4cb782" />
+          <path d="M4.3 7.2l1.9 1.9 3.6-3.9" stroke={dark} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      );
+    case "ERROR":
+      return (
+        <svg {...common}>
+          <circle cx="7" cy="7" r="6" fill="#eb5757" />
+          <path d="M4.9 4.9l4.2 4.2M9.1 4.9L4.9 9.1" stroke={dark} strokeWidth="1.5" strokeLinecap="round" />
+        </svg>
+      );
+    case "BLOCKED":
+      return (
+        <svg {...common}>
+          <circle cx="7" cy="7" r="6" fill="#f2994a" />
+          <path d="M7 4v3.4" stroke={dark} strokeWidth="1.5" strokeLinecap="round" />
+          <circle cx="7" cy="9.5" r="0.9" fill={dark} />
+        </svg>
+      );
+    case "SCANNING":
+      return (
+        <svg {...common} className={`shrink-0 animate-spin ${className}`}>
+          <circle cx="7" cy="7" r="5.25" stroke="#5e6ad2" strokeOpacity="0.25" strokeWidth="1.5" />
+          <path d="M7 1.75A5.25 5.25 0 0 1 12.25 7" stroke="#5e6ad2" strokeWidth="1.5" strokeLinecap="round" />
+        </svg>
+      );
+    default:
+      return (
+        <svg {...common}>
+          <circle cx="7" cy="7" r="5.25" stroke="#8a8f98" strokeWidth="1.5" strokeDasharray="2.2 2.2" />
+        </svg>
+      );
+  }
+}
+
+/** Icon + label, used in headers and property lists. */
+export default function StatusBadge({ status, scanning = false }: { status: string; scanning?: boolean }) {
+  const kind: StatusKind = scanning ? "SCANNING" : normalizeStatus(status);
+  return (
+    <span className="inline-flex shrink-0 items-center gap-1.5 text-[13px] text-zinc-300">
+      <StatusIcon status={kind} />
+      {STATUS_LABEL[kind]}
     </span>
   );
 }
 
-===== lib\api.ts =====
-export type MonitorStatus = "OK" | "ERROR" | "PENDING";
 
-export interface Monitor {
+===== lib\api.ts =====
+// --- Config & Headers ---
+// --- Config & Headers ---
+export const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
+export const API_BASE = API_URL; // Adding this for LiveProvider
+export const API_KEY = process.env.NEXT_PUBLIC_API_KEY || "secret-demo-key-2026-super-secure"; // Exporting this
+
+const headers = {
+  "Content-Type": "application/json",
+  "x-api-key": API_KEY,
+  "ngrok-skip-browser-warning": "true", 
+};
+// --- Types ---
+export type Monitor = {
   id: string;
   url: string;
   name: string;
-  intervalMins: number;
-  status: MonitorStatus;
+  status: string;
   lastCheckedAt: string | null;
   lastChangedAt: string | null;
-}
+  intervalMins: number;
+  sensitivity: number;
+};
 
-export interface Alert {
+export type Snapshot = {
   id: string;
+  monitorId: string;
+  contentHash: string;
+  imagePath: string;
+  diffPath: string | null;
+  createdAt: string;
+};
+
+export type Alert = {
+  id: string;
+  kind: string;
   summary: string;
   sentAt: string;
-  monitor: {
-    name: string;
-    url: string;
-  };
+  monitor: { name: string; url: string };
+};
+
+export type CompareResult = {
+  v1: { id: string; image: string; text: string; createdAt: string };
+  v2: { id: string; image: string; text: string; createdAt: string };
+  diff: { html: string; summary: string; changeRatio: number };
+  visualDiff: string | null;
+};
+
+export type ChannelStatus = {
+  telegram: boolean;
+  email: boolean;
+  discord: boolean;
+};
+
+export type ChannelResult = {
+  channel: string;
+  status: "sent" | "failed" | "skipped";
+  error?: string;
+};
+
+// --- Helpers ---
+export function getErrorMessage(err: any): string {
+  return err?.response?.data?.error || err?.message || "An error occurred";
 }
 
-export interface CreateMonitorInput {
-  url: string;
-  name: string;
-  intervalMins: number;
-  /** 1-100 (percent) */
-  sensitivity: number;
+export function assetUrl(path: string | null | undefined) {
+  if (!path) return undefined;
+  const base = `${API_URL}${path}`;
+  if (API_URL.includes("ngrok")) {
+    return `${base}?ngrok-skip-browser-warning=true`;
+  }
+  return base;
 }
 
-export const API_BASE = (
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000"
-).replace(/\/+$/, "");
-
-const API_KEY = process.env.NEXT_PUBLIC_API_KEY || "";
-
-export class ApiError extends Error {
-  status: number;
-
-  constructor(message: string, status: number) {
-    super(message);
-    this.name = "ApiError";
-    this.status = status;
-  }
-}
-
-async function request<T>(
-  path: string,
-  init: { method?: string; body?: unknown } = {}
-): Promise<T> {
-  const headers: Record<string, string> = {
-    Accept: "application/json",
-    "x-api-key": API_KEY,
-  };
-  // Only send a JSON content type when there is a body; some servers reject
-  // empty bodies that claim to be JSON (e.g. on DELETE).
-  if (init.body !== undefined) headers["Content-Type"] = "application/json";
-
-  let res: Response;
-  try {
-    res = await fetch(`${API_BASE}${path}`, {
-      method: init.method ?? "GET",
-      headers,
-      body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
-      cache: "no-store",
-    });
-  } catch {
-    throw new ApiError(
-      `Can't reach the API at ${API_BASE}. Check that the server is running and that CORS allows this origin and the x-api-key header.`,
-      0
-    );
-  }
-
-  const text = await res.text();
-  let data: unknown = undefined;
-  if (text) {
-    try {
-      data = JSON.parse(text);
-    } catch {
-      data = text;
-    }
-  }
-
-  if (!res.ok) {
-    let message =
-      res.status === 401 || res.status === 403
-        ? "The API rejected the request. Check NEXT_PUBLIC_API_KEY."
-        : `Request failed with status ${res.status}.`;
-
-    if (data && typeof data === "object") {
-      const body = data as { message?: unknown; error?: unknown };
-      const m = body.message ?? body.error;
-      if (typeof m === "string" && m) message = m;
-      else if (Array.isArray(m) && m.length) message = m.join(", ");
-    }
-    throw new ApiError(message, res.status);
-  }
-
-  return data as T;
-}
-
-export const getMonitors = () => request<Monitor[]>("/monitors");
-
-export const createMonitor = (input: CreateMonitorInput) =>
-  request<Monitor>("/monitors", { method: "POST", body: input });
-
-export const deleteMonitor = (id: string) =>
-  request<void>(`/monitors/${encodeURIComponent(id)}`, { method: "DELETE" });
-
-export const checkMonitor = (id: string) =>
-  request<unknown>(`/monitors/${encodeURIComponent(id)}/check`, {
-    method: "POST",
+// --- Generic Fetch ---
+async function fetchApi<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+  const res = await fetch(`${API_URL}${endpoint}`, {
+    ...options,
+    headers: { ...headers, ...options.headers },
+    cache: "no-store",
   });
 
-export const getAlerts = () => request<Alert[]>("/alerts");
-
-export function getErrorMessage(err: unknown): string {
-  return err instanceof Error && err.message
-    ? err.message
-    : "Something went wrong. Try again.";
+  if (!res.ok) {
+    let errorMsg = `Request failed with status ${res.status}`;
+    try {
+      const data = await res.json();
+      if (data.error) errorMsg = data.error;
+    } catch {}
+    throw new Error(errorMsg);
+  }
+  
+  if (res.status === 204) return {} as T;
+  return res.json();
 }
+
+// --- API Endpoints ---
+export const getMonitors = () => fetchApi<Monitor[]>("/monitors");
+export const getMonitor = (id: string) => fetchApi<Monitor>(`/monitors/${id}`);
+export const createMonitor = (data: any) => fetchApi<Monitor>("/monitors", { method: "POST", body: JSON.stringify(data) });
+export const deleteMonitor = (id: string) => fetchApi<{ ok: boolean }>(`/monitors/${id}`, { method: "DELETE" });
+export const checkMonitor = (id: string) => fetchApi<{ queued: boolean }>(`/monitors/${id}/check`, { method: "POST" });
+export const getHistory = (id: string) => fetchApi<Snapshot[]>(`/monitors/${id}/history`);
+export const compareSnapshots = (id: string, v1: string, v2: string) => fetchApi<CompareResult>(`/monitors/${id}/compare/${v1}/${v2}`);
+export const getAlerts = () => fetchApi<Alert[]>("/alerts");
+export const getChannels = () => fetchApi<ChannelStatus>("/channels");
+export const testChannels = () => fetchApi<{ results: ChannelResult[] }>("/channels/test", { method: "POST" });
+
+// Fixed: Added askMonitor here to match AskAI.tsx
+export const askMonitor = (id: string, question: string) => 
+  fetchApi<{ answer: string; basedOn: number }>(`/monitors/${id}/ask`, { method: "POST", body: JSON.stringify({ question }) });
 
 ===== lib\format.ts =====
 import { format, formatDistanceToNow } from "date-fns";
@@ -1312,6 +2680,18 @@ function toDate(value?: string | null): Date | null {
 export function timeAgo(value?: string | null, fallback = "Never"): string {
   const d = toDate(value);
   return d ? formatDistanceToNow(d, { addSuffix: true }) : fallback;
+}
+
+/** Compact relative time like Linear's list rows: now, 5m, 3h, 2d, Oct 4. */
+export function shortAgo(value?: string | null, fallback = "—"): string {
+  const d = toDate(value);
+  if (!d) return fallback;
+  const s = Math.max(0, Math.floor((Date.now() - d.getTime()) / 1000));
+  if (s < 45) return "now";
+  if (s < 3600) return `${Math.max(1, Math.round(s / 60))}m`;
+  if (s < 86400) return `${Math.round(s / 3600)}h`;
+  if (s < 7 * 86400) return `${Math.round(s / 86400)}d`;
+  return format(d, "MMM d");
 }
 
 export function fullDate(value?: string | null): string {
@@ -1335,12 +2715,26 @@ export function formatInterval(mins: number): string {
   return `every ${mins} min`;
 }
 
-===== lib\styles.ts =====
-const base =
-  "inline-flex items-center justify-center gap-2 rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 disabled:pointer-events-none disabled:opacity-50";
+/** 15 -> "15m", 60 -> "1h", 1440 -> "1d" */
+export function shortInterval(mins: number): string {
+  if (mins % 1440 === 0) return `${mins / 1440}d`;
+  if (mins % 60 === 0) return `${mins / 60}h`;
+  return `${mins}m`;
+}
 
-export const btnPrimary = `${base} h-9 bg-zinc-100 px-3.5 text-zinc-900 hover:bg-white`;
-export const btnSecondary = `${base} h-8 border border-zinc-800 bg-zinc-900 px-3 text-zinc-200 hover:border-zinc-700 hover:bg-zinc-800`;
-export const btnGhost = `${base} h-9 px-3.5 text-zinc-400 hover:bg-zinc-800/70 hover:text-zinc-100`;
-export const btnDanger = `${base} h-8 px-3 text-zinc-400 hover:bg-red-500/10 hover:text-red-300`;
-export const btnDangerActive = `${base} h-8 bg-red-500/10 px-3 text-red-300 hover:bg-red-500/20`;
+===== lib\styles.ts =====
+// Linear-style controls: 28px high, 13px text, 6px radius, one accent color.
+const base =
+  "inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md text-[13px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400/50 disabled:pointer-events-none disabled:opacity-50";
+
+export const btnPrimary = `${base} h-7 bg-indigo-500 px-2.5 text-white hover:bg-indigo-400`;
+export const btnAccent = btnPrimary;
+export const btnSecondary = `${base} h-7 border border-zinc-800 bg-zinc-900 px-2.5 text-zinc-200 hover:border-zinc-700 hover:bg-zinc-800`;
+export const btnGhost = `${base} h-7 px-2.5 text-zinc-400 hover:bg-zinc-800/70 hover:text-zinc-100`;
+export const btnIcon = `${base} h-7 w-7 text-zinc-500 hover:bg-zinc-800/70 hover:text-zinc-100`;
+export const btnDanger = `${base} h-7 px-2.5 text-zinc-400 hover:bg-red-500/10 hover:text-red-300`;
+export const btnDangerActive = `${base} h-7 bg-red-500/10 px-2.5 text-red-300 hover:bg-red-500/20`;
+
+export const card = "rounded-lg border border-zinc-800 bg-zinc-900/40";
+export const inputCls =
+  "h-8 w-full rounded-md border border-zinc-800 bg-zinc-900/60 px-2.5 text-[13px] text-zinc-100 placeholder:text-zinc-600 transition-colors focus:border-indigo-500/60 focus:outline-none focus:ring-2 focus:ring-indigo-500/20";

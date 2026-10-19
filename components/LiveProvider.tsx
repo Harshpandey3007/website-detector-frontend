@@ -82,7 +82,10 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     async function connect() {
       try {
         const res = await fetch(`${API_BASE}/events`, {
-          headers: { "x-api-key": API_KEY, Accept: "text/event-stream" },
+          headers: { 
+        "x-api-key": API_KEY, 
+        "ngrok-skip-browser-warning": "true", 
+        "Accept": "text/event-stream" },
           signal: ctrl.signal,
           cache: "no-store",
         });
