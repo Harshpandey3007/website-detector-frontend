@@ -52,9 +52,19 @@ export const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:30
 export const API_KEY = process.env.NEXT_PUBLIC_API_KEY || "";
 
 /** Screenshots and diff images are served by the API under /public (unguessable filenames). */
-export const assetUrl = (p?: string | null) =>
-  p ? `${API_BASE}/public${p.startsWith("/") ? p : `/${p}`}` : null;
-
+export const assetURL = (path: string | null) => {
+  if (!path) return undefined;
+  
+  // Get the base URL directly from the environment variable
+  const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
+  const base = `${baseUrl}${path}`;
+  
+  if (baseUrl.includes("ngrok")) {
+    return `${base}?ngrok-skip-browser-warning=true`;
+  }
+  
+  return base;
+};
 export class ApiError extends Error {
   status: number;
   constructor(message: string, status: number) {
